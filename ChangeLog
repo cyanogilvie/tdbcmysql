@@ -1,3 +1,9 @@
+2014-08-14  Don Porter  <dgp@users.sourceforge.net>
+
+	* configure.in:
+	* README:	Advanced version number to 1.0.1.
+	* configure: 	autoconf 2.68
+
 2012-11-15  KevinB. Kenny  <kennykb@acm.org>
 
 	* configure.in: Made change so that `make test` works even
