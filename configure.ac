@@ -3,13 +3,6 @@ dnl	This file is an input file used by the GNU "autoconf" program to
 dnl	generate the file "configure", which is run during Tcl installation
 dnl	to configure the system for the local environment.
 #
-# RCS: @(#) $Id: configure.in,v 1.47 2007/02/09 19:06:47 hobbs Exp $
-
-#-----------------------------------------------------------------------
-# Sample configure.in for Tcl Extensions.  The only places you should
-# need to modify this file are marked by the string __CHANGE__
-#-----------------------------------------------------------------------
-
 #-----------------------------------------------------------------------
 # Set your package name and version numbers here.
 #
@@ -39,7 +32,7 @@ TEA_LOAD_TCLCONFIG
 #--------------------------------------------------------------------
 # Load the tkConfig.sh file if necessary (Tk extension)
 #--------------------------------------------------------------------
-#
+
 #TEA_PATH_TKCONFIG
 #TEA_LOAD_TKCONFIG
 
@@ -141,10 +134,7 @@ TEA_ADD_TCL_SOURCES([library/tdbcmysql.tcl])
 
 # Add pkgIndex.tcl if it is generated in the Makefile instead of ./configure
 # and change Makefile.in to move it from CONFIG_CLEAN_FILES to BINARIES var.
-
-if test "${TEA_PLATFORM}" = "windows" ; then
-    AC_DEFINE(_WIN32)
-fi
+#CLEANFILES="$CLEANFILES pkgIndex.tcl"
 
 #--------------------------------------------------------------------
 # Choose which headers you need.  Extension authors should try very
@@ -192,7 +182,6 @@ TEA_ENABLE_SYMBOLS
 #--------------------------------------------------------------------
 
 AC_DEFINE(USE_TCL_STUBS, 1, [Use Tcl stubs])
-AC_DEFINE(USE_TK_STUBS, 1, [Use Tk stubs])
 
 #--------------------------------------------------------------------
 # This macro generates a line to use when building a library.  It
@@ -201,7 +190,6 @@ AC_DEFINE(USE_TK_STUBS, 1, [Use Tk stubs])
 #--------------------------------------------------------------------
 
 TEA_MAKE_LIB
-TEAX_VC_MANIFEST
 
 #--------------------------------------------------------------------
 # Determine the name of the tclsh and/or wish executables in the
