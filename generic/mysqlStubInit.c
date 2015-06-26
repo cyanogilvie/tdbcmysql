@@ -43,8 +43,8 @@ static const char *const mysqlStubLibNames[] = {
 
 /* ABI Version numbers of the MySQL API that we can cope with */
 
-static const char *const mysqlSuffixes[] = {
-    "", ".18", ".17", ".16", ".15", NULL
+static const char mysqlSuffixes[][4] = {
+    "", ".18", ".17", ".16", ".15"
 };
 
 /* Names of the functions that we need from MySQL */
@@ -140,12 +140,14 @@ MysqlInitStubs(Tcl_Interp* interp)
 
     status = TCL_ERROR;
     for (i = 0; status == TCL_ERROR && mysqlStubLibNames[i] != NULL; ++i) {
-	for (j = 0; status == TCL_ERROR && mysqlSuffixes[j] != NULL; ++j) {
+	for (j = 0; status == TCL_ERROR && (j < sizeof(mysqlSuffixes)/sizeof(mysqlSuffixes[0])); ++j) {
 	    path = Tcl_NewStringObj(LIBPREFIX, -1);
 	    Tcl_AppendToObj(path, mysqlStubLibNames[j], -1);
 #ifdef __CYGWIN__
-	    Tcl_AppendToObj(path, "-", -1);
-	    Tcl_AppendToObj(path, mysqlSuffixes[j]+1, -1);
+	    if (*mysqlSuffixes[j]) {
+		Tcl_AppendToObj(path, "-", -1);
+		Tcl_AppendToObj(path, mysqlSuffixes[j]+1, -1);
+	    }
 #endif
 	    Tcl_AppendObjToObj(path, shlibext);
 #ifndef __CYGWIN__
