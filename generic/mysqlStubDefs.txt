@@ -12,7 +12,7 @@
 #-----------------------------------------------------------------------------
 
 * STUBSTRUCT: mysqlStubs
-* LIBRARY: libmysqlclient_r libmysqlclient libmysql 
+* LIBRARY: mysqlclient_r mysqlclient mysql
 * CONVENTION: STDCALL
 
 int mysql_server_init(int, char**, char**);

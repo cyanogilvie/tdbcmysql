@@ -2,7 +2,7 @@
 dnl	This file is an input file used by the GNU "autoconf" program to
 dnl	generate the file "configure", which is run during Tcl installation
 dnl	to configure the system for the local environment.
-#
+
 #-----------------------------------------------------------------------
 # Set your package name and version numbers here.
 #
@@ -19,8 +19,9 @@ AC_INIT([tdbcmysql], [1.0.3])
 # as well as PKG_LIB_FILE and PKG_STUB_LIB_FILE.
 #--------------------------------------------------------------------
 
-AC_CONFIG_AUX_DIR(tclconfig)
 TEA_INIT([3.9])
+
+AC_CONFIG_AUX_DIR(tclconfig)
 
 #--------------------------------------------------------------------
 # Load the tclConfig.sh file
@@ -120,20 +121,16 @@ TEA_ADD_STUB_SOURCES()
 TEA_ADD_TCL_SOURCES([library/tdbcmysql.tcl])
 
 #--------------------------------------------------------------------
-# A few miscellaneous platform-specific items:
 #
-# Define a special symbol for Windows (BUILD_sample in this case) so
-# that we create the export library with the dll.
-#
-# Windows creates a few extra files that need to be cleaned up.
 # You can add more files to clean if your extension creates any extra
-# files.
+# files by extending CLEANFILES.
+# Add pkgIndex.tcl if it is generated in the Makefile instead of ./configure
+# and change Makefile.in to move it from CONFIG_CLEAN_FILES to BINARIES var.
 #
+# A few miscellaneous platform-specific items:
 # TEA_ADD_* any platform specific compiler/build info here.
 #--------------------------------------------------------------------
 
-# Add pkgIndex.tcl if it is generated in the Makefile instead of ./configure
-# and change Makefile.in to move it from CONFIG_CLEAN_FILES to BINARIES var.
 #CLEANFILES="$CLEANFILES pkgIndex.tcl"
 
 #--------------------------------------------------------------------
@@ -210,8 +207,4 @@ TEA_PROG_TCLSH
 CONFIGURE_OUTPUTS="Makefile pkgIndex.tcl config.cache config.log config.status"
 AC_SUBST(CONFIGURE_OUTPUTS)
 
-AC_CONFIG_FILES([Makefile pkgIndex.tcl])
-AC_OUTPUT
-
-# This is a comment added to force the 'execute' permission to update 
-# in the Fossil repository.
+AC_OUTPUT([Makefile pkgIndex.tcl])

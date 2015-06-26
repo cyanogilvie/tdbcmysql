@@ -11,15 +11,6 @@
 #
 # See the file "license.terms" for information on usage and redistribution
 # of this file, and for a DISCLAIMER OF ALL WARRANTIES.
-#
-# RCS: @(#) $Id: Makefile.in,v 1.64 2007/10/23 22:08:06 hobbs Exp $
-
-#========================================================================
-# Add additional lines to handle any additional AC_SUBST cases that
-# have been added in a customized configure script.
-#========================================================================
-
-#SAMPLE_NEW_VAR	= @SAMPLE_NEW_VAR@
 
 #========================================================================
 # Nothing of the variables below this line should need to be changed.
@@ -70,7 +61,7 @@ exec_prefix	= @exec_prefix@
 bindir		= @bindir@
 libdir		= @libdir@
 includedir	= @includedir@
-datarootdir     = @datarootdir@
+datarootdir	= @datarootdir@
 datadir		= @datadir@
 mandir		= @mandir@
 
@@ -83,13 +74,13 @@ pkgincludedir	= $(includedir)/$(PKG_DIR)
 
 top_builddir	= .
 
-INSTALL_OPTIONS =
-INSTALL         = $(SHELL) $(srcdir)/tclconfig/install-sh -c ${INSTALL_OPTIONS}
-INSTALL_DATA_DIR = ${INSTALL} -d -m 755
-INSTALL_PROGRAM = ${INSTALL} -m 755
-INSTALL_DATA    = ${INSTALL} -m 444
-INSTALL_SCRIPT  = ${INSTALL_PROGRAM}
-INSTALL_LIBRARY = ${INSTALL_DATA}
+INSTALL_OPTIONS	=
+INSTALL		= @INSTALL@ ${INSTALL_OPTIONS}
+INSTALL_DATA_DIR = @INSTALL_DATA_DIR@
+INSTALL_DATA	= @INSTALL_DATA@
+INSTALL_PROGRAM	= @INSTALL_PROGRAM@
+INSTALL_SCRIPT	= @INSTALL_SCRIPT@
+INSTALL_LIBRARY	= @INSTALL_LIBRARY@
 
 PACKAGE_NAME	= @PACKAGE_NAME@
 PACKAGE_VERSION	= @PACKAGE_VERSION@
@@ -137,19 +128,19 @@ TCLSH_ENV	= TCL_LIBRARY=`@CYGPATH@ $(TCL_SRC_DIR)/library` \
 PKG_ENV		= @LD_LIBRARY_PATH_VAR@="$(EXTRA_PATH):$(@LD_LIBRARY_PATH_VAR@)" \
 		  PATH="$(EXTRA_PATH):$(PATH)" \
 		  TCLLIBPATH="$(TCLLIBPATH)" \
-                  TDBCMYSQL_LIBRARY=`@CYGPATH@ $(srcdir)/library` 
+		  TDBCMYSQL_LIBRARY=`@CYGPATH@ $(srcdir)/library`
 
 TCLSH_PROG	= @TCLSH_PROG@
-TCLSH   	= $(PKG_ENV) $(TCLSH_ENV) $(TCLSH_PROG)
+TCLSH		= $(PKG_ENV) $(TCLSH_ENV) $(TCLSH_PROG)
 
 #WISH_ENV	= TK_LIBRARY=`@CYGPATH@ $(TK_SRC_DIR)/library`
 #WISH_PROG	= @WISH_PROG@
-#WISH   	= $(PKG_ENV) $(TCLSH_ENV) $(WISH_ENV) $(WISH_PROG)
+#WISH		= $(PKG_ENV) $(TCLSH_ENV) $(WISH_ENV) $(WISH_PROG)
 
 SHARED_BUILD	= @SHARED_BUILD@
 
-INCLUDES	= @PKG_INCLUDES@ @TCL_INCLUDES@ 
-# INCLUDES	= @PKG_INCLUDES@ @TCL_INCLUDES@ @TK_INCLUDES@ @TK_XINCLUDES@
+INCLUDES	= @PKG_INCLUDES@ @TCL_INCLUDES@
+#INCLUDES	= @PKG_INCLUDES@ @TCL_INCLUDES@ @TK_INCLUDES@ @TK_XINCLUDES@
 
 PKG_CFLAGS	= @PKG_CFLAGS@
 
@@ -162,7 +153,7 @@ PKG_CFLAGS	= @PKG_CFLAGS@
 DEFS		= @DEFS@ $(PKG_CFLAGS)
 
 # Move pkgIndex.tcl to 'BINARIES' var if it is generated in the Makefile
-CONFIGURE_OUTPUTS = @CONFIGURE_OUTPUTS@
+CONFIG_CLEAN_FILES = Makefile pkgIndex.tcl
 CLEANFILES	= @CLEANFILES@
 
 CPPFLAGS	= @CPPFLAGS@
@@ -171,8 +162,7 @@ AR		= @AR@
 CFLAGS		= @CFLAGS@
 COMPILE		= $(CC) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 
-VALGRIND		= valgrind
-VALGRINDARGS		= --tool=memcheck --num-callers=16 --leak-resolution=high --leak-check=yes --show-reachable=yes -v
+.SUFFIXES: .c .$(OBJEXT)
 
 #========================================================================
 # Start of user-definable TARGETS section
@@ -180,7 +170,7 @@ VALGRINDARGS		= --tool=memcheck --num-callers=16 --leak-resolution=high --leak-c
 
 #========================================================================
 # TEA TARGETS.  Please note that the "libraries:" target refers to platform
-# independent files, and the "binaries:" target inclues executable programs and
+# independent files, and the "binaries:" target includes executable programs and
 # platform-dependent libraries.  Modify these targets so that they install
 # the various pieces of your package.  The make and install rules
 # for the BINARIES that you specified above have already been done.
@@ -239,26 +229,27 @@ install-doc: doc
 	done
 
 test: binaries libraries
-	$(TCLSH) `@CYGPATH@ $(srcdir)/tests/all.tcl` $(TESTFLAGS) \
+	@$(TCLSH) `@CYGPATH@ $(srcdir)/tests/all.tcl` $(TESTFLAGS) \
 		-load "package ifneeded tdbc::mysql $(PACKAGE_VERSION) \
 			[list source `@CYGPATH@ $(srcdir)/library/tdbcmysql.tcl`]\;[list load `@CYGPATH@ $(PKG_LIB_FILE)` $(PACKAGE_NAME)];\
 		package ifneeded tdbc ${TDBC_VERSION} \
 			[list source `@CYGPATH@ $(TDBC_BIN_DIR)/tdbc.tcl`]\;[list load `@CYGPATH@ $(TDBC_BIN_DIR)/$(TDBC_LIB_FILE)` tdbc]"
-
-valgrind: binaries libraries
-	$(PKG_ENV) $(TCLSH_ENV) \
-	LD_PRELOAD=$(PKG_LIB_FILE) \
-	$(VALGRIND) $(VALGRINDARGS) \
-	$(TCLSH_PROG) `@CYGPATH@ $(srcdir)/tests/all.tcl` $(TESTFLAGS) \
-		-load "package ifneeded tdbc::mysql ${PACKAGE_VERSION} \
-			[list source `@CYGPATH@ $(srcdir)/library/tdbcmysql.tcl`]\;[list load `@CYGPATH@ $(PKG_LIB_FILE)` $(PACKAGE_NAME)]"
-
 
 shell: binaries libraries
 	@$(TCLSH) $(SCRIPT)
 
 gdb:
 	$(TCLSH_ENV) $(PKG_ENV) gdb $(TCLSH_PROG) $(SCRIPT)
+
+VALGRINDARGS =	--tool=memcheck --num-callers=8 --leak-resolution=high \
+		--leak-check=yes --show-reachable=yes -v
+
+valgrind: binaries libraries
+	$(TCLSH_ENV) valgrind $(VALGRINDARGS) $(TCLSH_PROG) \
+		`@CYGPATH@ $(srcdir)/tests/all.tcl` $(TESTFLAGS)
+
+valgrindshell: binaries libraries
+	$(TCLSH_ENV) valgrind $(VALGRINDARGS) $(TCLSH_PROG) $(SCRIPT)
 
 depend:
 
@@ -292,7 +283,7 @@ $(PKG_LIB_FILE): $(PKG_OBJECTS)
 # As necessary, add $(srcdir):$(srcdir)/compat:....
 #========================================================================
 
-VPATH = $(srcdir):$(srcdir)/generic:$(srcdir)/unix:$(srcdir)/win
+VPATH = $(srcdir):$(srcdir)/generic:$(srcdir)/unix:$(srcdir)/win:$(srcdir)/macosx
 
 .c.@OBJEXT@:
 	$(COMPILE) -c `@CYGPATH@ $<` -o $@
@@ -311,7 +302,7 @@ dist-clean:
 	rm -rf $(DIST_DIR) $(DIST_ROOT)/$(PKG_DIR).tar.*
 
 dist: dist-clean
-	mkdir -p $(DIST_DIR)
+	$(INSTALL_DATA_DIR) $(DIST_DIR)
 	cp -p $(srcdir)/ChangeLog $(srcdir)/README* $(srcdir)/license* \
 		$(srcdir)/aclocal.m4 $(srcdir)/configure $(srcdir)/*.in \
 		$(srcdir)/configure.ac $(DIST_DIR)/
@@ -324,8 +315,8 @@ dist: dist-clean
 	    fi; \
 	done;
 
-	mkdir $(DIST_DIR)/tclconfig
-	cp $(srcdir)/tclconfig/install-sh $(srcdir)/tclconfig/tcl.m4 \
+	$(INSTALL_DATA_DIR) $(DIST_DIR)/tclconfig
+	cp -p $(srcdir)/tclconfig/install-sh $(srcdir)/tclconfig/tcl.m4 \
 		$(DIST_DIR)/tclconfig/
 	chmod 664 $(DIST_DIR)/tclconfig/tcl.m4
 	chmod +x $(DIST_DIR)/tclconfig/install-sh
@@ -377,14 +368,14 @@ genstubs: $(srcdir)/../tdbc/tools/genExtStubs.tcl $(srcdir)/generic/mysqlStubDef
 # variable in configure.ac
 #========================================================================
 
-clean:  
+clean:
 	-test -z "$(BINARIES)" || rm -f $(BINARIES)
 	-rm -f *.$(OBJEXT) core *.core
 	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean: clean
 	-rm -f *.tab.c
-	-rm -f $(CONFIGURE_OUTPUTS)
+	-rm -f $(CONFIG_CLEAN_FILES)
 	-rm -f config.cache config.log config.status
 
 #========================================================================
@@ -402,8 +393,8 @@ install-lib-binaries: binaries
 	@$(INSTALL_DATA_DIR) $(DESTDIR)$(pkglibdir)
 	@list='$(lib_BINARIES)'; for p in $$list; do \
 	  if test -f $$p; then \
-	    echo " $(INSTALL_PROGRAM) $$p $(DESTDIR)$(pkglibdir)/$$p"; \
-	    $(INSTALL_PROGRAM) $$p $(DESTDIR)$(pkglibdir)/$$p; \
+	    echo " $(INSTALL_LIBRARY) $$p $(DESTDIR)$(pkglibdir)/$$p"; \
+	    $(INSTALL_LIBRARY) $$p $(DESTDIR)$(pkglibdir)/$$p; \
 	    stub=`echo $$p|sed -e "s/.*\(stub\).*/\1/"`; \
 	    if test "x$$stub" = "xstub"; then \
 		echo " $(RANLIB_STUB) $(DESTDIR)$(pkglibdir)/$$p"; \
@@ -451,8 +442,6 @@ install-bin-binaries: binaries
 	    $(INSTALL_PROGRAM) $$p $(DESTDIR)$(bindir)/$$p; \
 	  fi; \
 	done
-
-.SUFFIXES: .c .$(OBJEXT)
 
 Makefile: $(srcdir)/Makefile.in  $(top_builddir)/config.status
 	cd $(top_builddir) \

@@ -123,7 +123,7 @@ test tdbc::mysql-1.9 {create a connection, failure} {*}{
 
 #------------------------------------------------------------------------------
 #
-# Bail out if the user hasn't set TDBCMYSQL_TEST_DB 
+# Bail out if the user hasn't set TDBCMYSQL_TEST_DB
 
 if {![info exists env(TDBCMYSQL_TEST_DB)]} {
     puts "Not performing functional testing of tdbc::mysql because\
@@ -162,7 +162,7 @@ test tdbc::mysql-2.1 {prepare statement, wrong # args} {*}{
 
 test tdbc::mysql-2.2 {don't make a statement without a connection} {*}{
     -body {
-	tdbc::mysql::statement create stmt rubbish moreRubbish 
+	tdbc::mysql::statement create stmt rubbish moreRubbish
     }
     -returnCodes error
     -result {rubbish does not refer to an object}
@@ -170,7 +170,7 @@ test tdbc::mysql-2.2 {don't make a statement without a connection} {*}{
 
 test tdbc::mysql-2.3 {don't make a statement without a connection} {*}{
     -body {
-	tdbc::mysql::statement create stmt oo::class moreRubbish 
+	tdbc::mysql::statement create stmt oo::class moreRubbish
     }
     -returnCodes error
     -result {oo::class does not refer to a MySQL connection}
@@ -608,7 +608,7 @@ test tdbc::mysql-5.2 {paramtype - just a direction} {*}{
     -match glob
     -result {wrong # args*}
 }
-    
+
 test tdbc::mysql-5.3 {paramtype - bad type} {*}{
     -setup {
 	set stmt [::db prepare {
@@ -788,7 +788,7 @@ test tdbc::mysql-8.1 {nextrow - as dicts} {*}{
     }
     -result {fred wilma pebbles barney betty bam-bam}
 }
-    
+
 test tdbc::mysql-8.2 {nextrow - as lists} {*}{
     -setup {
 	set stmt [::db prepare {
@@ -903,7 +903,7 @@ test tdbc::mysql-8.7 {null results - lists} {*}{
     }
     -result {1 {1 fred {}} 0}
 }
-	
+
 test tdbc::mysql-9.1 {rs foreach var script} {*}{
     -setup {
 	set stmt [::db prepare {
@@ -1636,7 +1636,7 @@ test tdbc::mysql-9.37 {rs foreach - too few args} {*}{
 	$stmt close
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -1653,7 +1653,7 @@ test tdbc::mysql-9.38 {stmt foreach - too few args} {*}{
 	$stmt close
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -1664,7 +1664,7 @@ test tdbc::mysql-9.39 {db foreach - too few args} {*}{
 	}
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -1676,14 +1676,14 @@ test tdbc::mysql-9.40 {rs foreach - too many args} {*}{
 	set rs [$stmt execute]
     }
     -body {
-	$rs foreach row do something 
+	$rs foreach row do something
     }
     -cleanup {
 	$rs close
 	$stmt close
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -1700,7 +1700,7 @@ test tdbc::mysql-9.41 {stmt foreach - too many args} {*}{
 	$stmt close
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -1711,7 +1711,7 @@ test tdbc::mysql-9.42 {db foreach - too many args} {*}{
 	} {} do something
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -1795,7 +1795,7 @@ test tdbc::mysql-10.6 {allrows --} {*}{
 	}
     }
     -result {{idnum 4 name barney} {idnum 5 name betty} {idnum 6 name bam-bam}}
-}    
+}
 
 test tdbc::mysql-10.7 {allrows -as lists} {*}{
     -setup {
@@ -1837,7 +1837,7 @@ test tdbc::mysql-10.9 {allrows -as lists} {*}{
     }
     -result {{4 barney} {5 betty} {6 bam-bam}}
 }
-    
+
 test tdbc::mysql-10.10 {allrows -as lists --} {*}{
     -setup {
 	set stmt [::db prepare {
@@ -1994,7 +1994,7 @@ test tdbc::mysql-10.20 {allrows - too many args} {*}{
 	$stmt close
     }
     -returnCodes error
-    -result {wrong # args*} 
+    -result {wrong # args*}
     -match glob
 }
 
@@ -2334,7 +2334,7 @@ db foreach -as lists -- row {SELECT version()} {
     set version [lindex $row 0]
 }
 tcltest::testConstraint mysqlAtLeast5116 \
-    [expr {[regexp {^\d+\.\d+(?:\.\d+)?} $version components] 
+    [expr {[regexp {^\d+\.\d+(?:\.\d+)?} $version components]
 	   && [package vcompare $components 5.1.16] >= 0}]
 
 catch {
@@ -2540,7 +2540,7 @@ test tdbc::mysql-16.3 {enumerate database tables} {*}{
     -body {
 	set dict [::db tables]
 	list [dict exists $dict people] [dict exists $dict property]
-    } 
+    }
     -result {1 0}
 }
 
@@ -2548,7 +2548,7 @@ test tdbc::mysql-16.4 {enumerate database tables} {*}{
     -body {
 	set dict [::db tables p%]
 	list [dict exists $dict people] [dict exists $dict property]
-    } 
+    }
     -result {1 0}
 }
 
@@ -2610,7 +2610,7 @@ test tdbc::mysql-17.4 {database columns - match pattern} {*}{
 test tdbc::mysql-18.1 {$statement params - excess arg} {*}{
     -setup {
 	set s [::db prepare {
-	    SELECT name FROM people 
+	    SELECT name FROM people
 	    WHERE name LIKE :pattern
 	    AND idnum >= :minid
 	}]
@@ -2619,7 +2619,7 @@ test tdbc::mysql-18.1 {$statement params - excess arg} {*}{
     }
     -body {
 	$s params excess
-    } 
+    }
     -cleanup {
 	rename $s {}
     }
@@ -2631,12 +2631,12 @@ test tdbc::mysql-18.1 {$statement params - excess arg} {*}{
 test tdbc::mysql-18.2 {$statement params - no params} {*}{
     -setup {
 	set s [::db prepare {
-	    SELECT name FROM people 
+	    SELECT name FROM people
 	}]
     }
     -body {
 	$s params
-    } 
+    }
     -cleanup {
 	rename $s {}
     }
@@ -2646,7 +2646,7 @@ test tdbc::mysql-18.2 {$statement params - no params} {*}{
 test tdbc::mysql-18.3 {$statement params - try a few data types} {*}{
     -setup {
 	set s [::db prepare {
-	    SELECT name FROM people 
+	    SELECT name FROM people
 	    WHERE name LIKE :pattern
 	    AND idnum >= :minid
 	}]
@@ -2663,7 +2663,7 @@ test tdbc::mysql-18.3 {$statement params - try a few data types} {*}{
 	    [dict get $d pattern direction] \
 	    [dict get $d pattern type] \
 	    [dict get $d pattern precision]
-    } 
+    }
     -cleanup {
 	rename $s {}
     }
@@ -2910,7 +2910,7 @@ test tdbc::mysql-20.2 {direct value transfers} {*}{
 	$stmt paramtype xvarc1 varchar
 	$stmt paramtype xbin1 binary 20
 	$stmt paramtype xchar1 char 20
-    } 
+    }
     -body {
 	set trouble {}
 	set xtiny1 0x14
@@ -3013,9 +3013,9 @@ test tdbc::mysql-21.2 {transfers of binary data} {*}{
 test tdbc::mysql-22.1 {duplicate column name} {*}{
     -body {
 	set stmt [::db prepare {
-	    SELECT a.idnum, b.idnum 
+	    SELECT a.idnum, b.idnum
 	    FROM people a, people b
-	    WHERE a.name = 'hud rockstone' 
+	    WHERE a.name = 'hud rockstone'
 	    AND b.info = a.info
 	}]
 	set rs [$stmt execute]
@@ -3080,7 +3080,7 @@ test tdbc::mysql-23.1 {Primary keys - no arg} {*}{
     -returnCodes error
     -match glob
     -result {wrong # args*}
-} 
+}
 test tdbc::mysql-23.2 {Primary keys - no primary key} {*}{
     -body {
 	::db primarykeys d

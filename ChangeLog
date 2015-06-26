@@ -199,15 +199,15 @@
 	* configure.in: Advance release to 1.0b15.1
 	* README:	Advance release to 1.0b15.1
 	* configure:	autoconf-2.59
-	
+
 2010-05-10  Kevin B. Kenny  <kennykb@acm.org>
 
 	* aclocal.m4:	Synchronize with tdbc.
 	* configure.in:	Advance TEA version to 3.7. Advance release to 1.0b15.
-			Corrected the TDBC stub library specification so that 
+			Corrected the TDBC stub library specification so that
 			it works under MSVC.
 	* generic/mysqlStubDefs.txt:
-			Split out the linkage convention so that 
+			Split out the linkage convention so that
 			genExtStubs.tcl can generate syntactically correct
 			VC++ pointer-to-function declarations.
 	* generic/mysqlStubInit.c:
@@ -218,7 +218,7 @@
 	* README:	Advance release to 1.0b15
 	* tclconfig/:	Advance to TEA 3.7
 	* configure:	autoconf-2.59
-	
+
 2010-05-10  Andreas Kupries  <andreask@activestate.com>
 
 	* generic/tdbcmysql.c: Fixed violations of strict C89.
@@ -254,38 +254,38 @@
 		and to have no compile-time dependencies on MySQL.
 	* tests/tdbcodbc.test (tdbc::mysql-14.8):
 		Corrected a misnamed test.
-	
+
 2010-04-25  Kevin B. Kenny  <kennykb@acm.org>
 
 	* configure.in: Adjusted TDBC_* environment vars to be tdbc_*
 	* README:	for better TEA compatibility. Advanced version number
 			to 1.0b14.
 	* configure:	autoconf-2.59
-	
+
 2009-09-29  Kevin B. Kenny  <kennykb@acm.org>
 
 	* tests/tdbcmysql.test: Changed all TEST_* environment variables
 				to TDBCMYSQL_* for easier high-level scripting
 				of the tests.
-	
+
 2009-09-20  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README:
 	* configure.in:		Advance version number to 1.0b13
 	* configure:		autoconf-2.59
-	
+
 2009-07-03  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README:
 	* configure.in:		Advance version number to 1.0b12
 	* configure:		autoconf-2.59
-	
+
 2009-05-29  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README:
 	* configure.in:		Advance version number to 1.0b11
 	* configure:		autoconf-2.59
-	
+
 2009-04-19  Kevin B. Kenny  <kennykb@acm.org>
 
 	* generic/tdbcmysql.c: Silenced a compiler warning about 'fields'
@@ -296,11 +296,11 @@
 
 	* generic/tdbcmysql.c: Changed so that an inappropriate access to
 	                       an array or a failing read trace yields NULL.
-	* tests/tdbcmysql.test: Revised test cases according to the above 
+	* tests/tdbcmysql.test: Revised test cases according to the above
 				change.
 	* doc/tdbc_mysql.n: Made changes so that NROFF formatting matches
 	                    the Tcl standard.
-	
+
 2009-04-16  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README:
@@ -316,7 +316,7 @@
 			       No update made to test suite because
 			       valgrind detected the error with existing
 			       tests on a -DPURIFY build.
-	
+
 2009-03-03  Kevin B. Kenny  <kennykb@acm.org>
 
 	* generic/tdbcmysql.c:
@@ -326,7 +326,7 @@
 	Removed some classes that were the result of overeager copying
 	from tclodbc. Replaced 'my variable' with variables declared at
 	class level.
-	
+
 2009-02-14  Kevin B. Kenny  <kennykb@acm.org>
 
 	* doc/tdbc_mysql.n:	Many small format changes to make 'man2html'
@@ -334,14 +334,14 @@
 	* README:
 	* configure.in:		Advance version number to 1.0b8
 	* configure:		autoconf-2.59
-	
+
 2009-02-01  Kevin B. Kenny  <kennykb@acm.org>
 
-	* generic/tdbcmysql.c: 
+	* generic/tdbcmysql.c:
 	* configure.in: Changed the <my_global.h> tests to use the
 	correct conditionals on mingw.
 	* configure: Autoconf 2.59
-	
+
 2009-01-31  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README:
@@ -353,7 +353,7 @@
 	* tests/tdbcmysql.test: Added test flags so that a nonstandard port
 	or socket can be specified. Changed errorCode-dependent tests to
 	look for the new form of errorCode.
-	
+
 2009-01-05  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README: Added a few more hints for building on Windows.
@@ -361,7 +361,7 @@
 	* generic/tdbcmysql.c: Changed to #include <my_global.h> on Windows.
 	Advanced release to 1.0b6
 	* configure: autoconf 2.59
-	
+
 2009-01-04  Kevin B. Kenny  <kennykb@acm.org>
 
 	* README:
@@ -378,7 +378,7 @@
 	MySQL data types handled in this driver. Added a test case that
 	column names are correctly disambiguated.
 	* configure: autoconf 2.59
-	
+
 2009-01-02  Kevin B. Kenny  <kennykb@acm.org>
 
 	Initial baseline of a TDBC driver for MySQL.

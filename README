@@ -32,7 +32,7 @@ accepts the following two options:
     --with-mysql-includedir=PATH
 
 	Specifies PATH as the path to the directory that contains
-	'mysql.h' and related header files. 
+	'mysql.h' and related header files.
 
     --with-mysql-libdir=PATH
 
@@ -45,7 +45,7 @@ You need the 'xampp-win32-devel' package as well as the 'xampp-win32'
 package.
 
 In order to build the code under msys/mingw, you need to rebuild the
-import library for use by mingw. (This also requires the 'reimp' 
+import library for use by mingw. (This also requires the 'reimp'
 utility from mingw-utils.) The recipe for this step is:
 
     reimp -d drive:/path/to/xampp/lib/mysql/libmysql.lib

@@ -94,7 +94,7 @@ typedef struct PerInterpData {
 	}					\
     } while(0)
 
-/* 
+/*
  * Structure that carries the data for an MYSQL connection
  *
  * 	The ConnectionData structure is refcounted to simplify the
@@ -149,7 +149,7 @@ typedef struct StatementData {
     ConnectionData* cdata;	/* Data for the connection to which this
 				 * statement pertains. */
     Tcl_Obj* subVars;	        /* List of variables to be substituted, in the
-				 * order in which they appear in the 
+				 * order in which they appear in the
 				 * statement */
     struct ParamData *params;	/* Data types and attributes of parameters */
     Tcl_Obj* nativeSql;		/* Native SQL statement to pass into
@@ -649,8 +649,8 @@ const static Tcl_MethodType StatementParamtypeMethodType = {
     NULL			/* cloneProc */
 };
 
-/* 
- * Methods to create on the statement class. 
+/*
+ * Methods to create on the statement class.
  */
 
 const static Tcl_MethodType* StatementMethods[] = {
@@ -755,7 +755,7 @@ MysqlBindIndex(
     }
 }
 
-/* 
+/*
  *-----------------------------------------------------------------------------
  *
  * MysqlBindAllocBuffer --
@@ -874,7 +874,7 @@ MysqlBindGetBufferType(
     }
 }
 
-static void 
+static void
 MysqlBindSetBufferType(
     MYSQL_BIND* b, 		/* Binding array to alter */
     int i,			/* Index in the binding array */
@@ -887,7 +887,7 @@ MysqlBindSetBufferType(
     }
 }
 
-static void 
+static void
 MysqlBindSetLength(
     MYSQL_BIND* b, 		/* Binding array to alter */
     int i,			/* Index in the binding array */
@@ -900,7 +900,7 @@ MysqlBindSetLength(
     }
 }
 
-static void 
+static void
 MysqlBindSetIsNull(
     MYSQL_BIND* b, 		/* Binding array to alter */
     int i,			/* Index in the binding array */
@@ -913,7 +913,7 @@ MysqlBindSetIsNull(
     }
 }
 
-static void 
+static void
 MysqlBindSetError(
     MYSQL_BIND* b, 		/* Binding array to alter */
     int i,			/* Index in the binding array */
@@ -1187,7 +1187,7 @@ ConfigureConnection(
 	    Tcl_AppendObjToObj(msg, objv[i]);
 	    Tcl_AppendToObj(msg, "\" option cannot be changed dynamically", -1);
 	    Tcl_SetObjResult(interp, msg);
-	    Tcl_SetErrorCode(interp, "TDBC", "GENERAL_ERROR", "HY000", 
+	    Tcl_SetErrorCode(interp, "TDBC", "GENERAL_ERROR", "HY000",
 			     "MYSQL", "-1", NULL);
 	    return TCL_ERROR;
 	}
@@ -1273,7 +1273,7 @@ ConfigureConnection(
 	if (cdata->mysqlPtr == NULL) {
 	    Tcl_SetObjResult(interp,
 			     Tcl_NewStringObj("mysql_init() failed.", -1));
-	    Tcl_SetErrorCode(interp, "TDBC", "GENERAL_ERROR", "HY001", 
+	    Tcl_SetErrorCode(interp, "TDBC", "GENERAL_ERROR", "HY001",
 			     "MYSQL", "NULL", NULL);
 	    return TCL_ERROR;
 	}
@@ -1281,7 +1281,7 @@ ConfigureConnection(
 	/* Set character set for the connection */
 
 	mysql_options(cdata->mysqlPtr, MYSQL_SET_CHARSET_NAME, "utf8");
-	
+
 	    /* Set SSL options if needed */
 
 	if (sslFlag) {
@@ -1290,13 +1290,13 @@ ConfigureConnection(
 			  stringOpts[INDX_SSLCAPATH],
 			  stringOpts[INDX_SSLCIPHER]);
 	}
-	
+
 	/* Establish the connection */
-	
+
 	/*
 	 * TODO - mutex around this unless linked to libmysqlclient_r ?
 	 */
-	
+
 	if (mysql_real_connect(cdata->mysqlPtr, stringOpts[INDX_HOST],
 			       stringOpts[INDX_USER], stringOpts[INDX_PASSWD],
 			       stringOpts[INDX_DB], port,
@@ -1306,7 +1306,7 @@ ConfigureConnection(
 	}
 
 	cdata->flags |= CONN_FLAG_AUTOCOMMIT;
-	
+
     } else {
 
 	/* Already open connection */
@@ -1315,7 +1315,7 @@ ConfigureConnection(
 
 	    /* User name changed - log in again */
 
-	    if (mysql_change_user(cdata->mysqlPtr, 
+	    if (mysql_change_user(cdata->mysqlPtr,
 				  stringOpts[INDX_USER],
 				  stringOpts[INDX_PASSWD],
 				  stringOpts[INDX_DB])) {
@@ -1405,7 +1405,7 @@ ConnectionConstructor(
     cdata->flags = 0;
     IncrPerInterpRefCount(pidata);
     Tcl_ObjectSetMetadata(thisObject, &connectionDataType, (ClientData) cdata);
-    
+
     /* Configure the connection */
 
     if (ConfigureConnection(cdata, interp, objc, objv, skip) != TCL_OK) {
@@ -1490,7 +1490,7 @@ ConnectionBegintransactionMethod(
  *
  * Usage:
  * 	$connection columns table ?pattern?
- * 
+ *
  * Parameters:
  *	None.
  *
@@ -1566,11 +1566,11 @@ ConnectionColumnsMethod(
 		Tcl_DictObjPut(NULL, attrs, literals[LIT_PRECISION],
 		    Tcl_NewIntObj(field->length
 			/ cdata->collationSizes[field->charsetnr]));
-	    }		
+	    }
 	    Tcl_DictObjPut(NULL, attrs, literals[LIT_SCALE],
 			   Tcl_NewIntObj(field->decimals));
 	    Tcl_DictObjPut(NULL, attrs, literals[LIT_NULLABLE],
-			   Tcl_NewIntObj(!(field->flags 
+			   Tcl_NewIntObj(!(field->flags
 					   & (NOT_NULL_FLAG))));
 	    Tcl_DictObjPut(NULL, retval, name, attrs);
 	}
@@ -1591,7 +1591,7 @@ ConnectionColumnsMethod(
  *
  * Usage:
  *	$connection commit
- * 
+ *
  * Parameters:
  *	None.
  *
@@ -1679,10 +1679,10 @@ ConnectionCommitMethod(
  */
 
 static int ConnectionConfigureMethod(
-     ClientData clientData, 
+     ClientData clientData,
      Tcl_Interp* interp,
      Tcl_ObjectContext objectContext,
-     int objc, 
+     int objc,
      Tcl_Obj *const objv[]
 ) {
     Tcl_Object thisObject = Tcl_ObjectContextObject(objectContext);
@@ -1758,13 +1758,13 @@ ConnectionEvaldirectMethod(
 	TransferMysqlError(interp, cdata->mysqlPtr);
 	return TCL_ERROR;
     }
-    
+
     /* Retrieve the result set */
 
     resultPtr = mysql_store_result(cdata->mysqlPtr);
     nColumns = mysql_field_count(cdata->mysqlPtr);
     if (resultPtr == NULL) {
-	/* 
+	/*
 	 * Can't retrieve result set. Distinguish result-less statements
 	 * from MySQL errors.
 	 */
@@ -1859,7 +1859,7 @@ ConnectionNeedCollationInfoMethod(
  *
  * Usage:
  * 	$connection rollback
- * 
+ *
  * Parameters:
  *	None.
  *
@@ -1934,7 +1934,7 @@ ConnectionRollbackMethod(
  * of characters in a given column's collation and character set.
  * This information is available by querying INFORMATION_SCHEMA, which
  * is easier to do from Tcl than C. This method passes in the results.
- * 
+ *
  *-----------------------------------------------------------------------------
  */
 
@@ -2014,7 +2014,7 @@ ConnectionSetCollationInfoMethod(
  *
  * Usage:
  * 	$connection tables ?pattern?
- * 
+ *
  * Parameters:
  *	None.
  *
@@ -2141,7 +2141,7 @@ CloneCmd(
  *
  * DeleteConnectionMetadata, DeleteConnection --
  *
- *	Cleans up when a database connection is deleted.  
+ *	Cleans up when a database connection is deleted.
  *
  * Results:
  *	None.
@@ -2279,7 +2279,7 @@ AllocAndPrepareStatement(
     } else {
 
 	/* Prepare the statement */
-	
+
 	nativeSqlStr = Tcl_GetStringFromObj(sdata->nativeSql, &nativeSqlLen);
 	if (mysql_stmt_prepare(stmtPtr, nativeSqlStr, nativeSqlLen)) {
 	    TransferMysqlStmtError(interp, stmtPtr);
@@ -2448,13 +2448,13 @@ StatementConstructor(
     Tcl_IncrRefCount(nativeSql);
     for (i = 0; i < tokenc; ++i) {
 	tokenStr = Tcl_GetStringFromObj(tokenv[i], &tokenLen);
-	
+
 	switch (tokenStr[0]) {
 	case '$':
 	case ':':
 	case '@':
 	    Tcl_AppendToObj(nativeSql, "?", 1);
-	    Tcl_ListObjAppendElement(NULL, sdata->subVars, 
+	    Tcl_ListObjAppendElement(NULL, sdata->subVars,
 				     Tcl_NewStringObj(tokenStr+1, tokenLen-1));
 	    break;
 
@@ -2464,7 +2464,7 @@ StatementConstructor(
 					      " does not support semicolons "
 					      "in statements", -1));
 	    goto freeNativeSql;
-	    break; 
+	    break;
 
 	default:
 	    Tcl_AppendToObj(nativeSql, tokenStr, tokenLen);
@@ -2574,15 +2574,15 @@ StatementParamsMethod(
 	Tcl_DictObjPut(NULL, paramDesc, literals[LIT_NAME], paramName);
 	switch (sdata->params[i].flags & (PARAM_IN | PARAM_OUT)) {
 	case PARAM_IN:
-	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_DIRECTION], 
+	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_DIRECTION],
 			   literals[LIT_IN]);
 	    break;
 	case PARAM_OUT:
-	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_DIRECTION], 
+	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_DIRECTION],
 			   literals[LIT_OUT]);
 	    break;
 	case PARAM_IN | PARAM_OUT:
-	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_DIRECTION], 
+	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_DIRECTION],
 			   literals[LIT_INOUT]);
 	    break;
 	default:
@@ -2601,7 +2601,7 @@ StatementParamsMethod(
 		       Tcl_NewIntObj(sdata->params[i].scale));
 	Tcl_DictObjPut(NULL, retVal, paramName, paramDesc);
     }
-	
+
     Tcl_SetObjResult(interp, retVal);
     return TCL_OK;
 }
@@ -2667,9 +2667,9 @@ StatementParamtypeMethod(
     if (objc < 4) {
 	goto wrongNumArgs;
     }
-    
+
     i = 3;
-    if (Tcl_GetIndexFromObjStruct(interp, objv[i], directions, 
+    if (Tcl_GetIndexFromObjStruct(interp, objv[i], directions,
 				  sizeof(directions[0]), "direction",
 				  TCL_EXACT, &direction) != TCL_OK) {
 	direction = PARAM_IN;
@@ -2867,7 +2867,7 @@ ResultSetConstructor(
     int nColumns;		/* Number of columns in the result set */
     MYSQL_FIELD* fields = NULL;	/* Description of columns of the result set */
     MYSQL_BIND* resultBindings;	/* Bindings of the columns of the result set */
-    unsigned long* resultLengths; 
+    unsigned long* resultLengths;
 				/* Lengths of the columns of the result set */
     int i;
 
@@ -2898,7 +2898,7 @@ ResultSetConstructor(
     Tcl_ListObjLength(NULL, sdata->columnNames, &nColumns);
     cdata = sdata->cdata;
 
-    /* 
+    /*
      * If there is no transaction in progress, turn on auto-commit so that
      * this statement will execute directly.
      */
@@ -3026,11 +3026,11 @@ ResultSetConstructor(
 
 	    /* Param from a variable */
 
-	    paramValObj = Tcl_GetVar2Ex(interp, paramName, NULL, 
+	    paramValObj = Tcl_GetVar2Ex(interp, paramName, NULL,
 					TCL_LEAVE_ERR_MSG);
 	}
 
-	/* 
+	/*
 	 * At this point, paramValObj contains the parameter to bind.
 	 * Convert the parameters to the appropriate data types for
 	 * MySQL's prepared statement interface, and bind them.
@@ -3117,14 +3117,14 @@ ResultSetConstructor(
 		    MysqlBindSetBufferType(rdata->paramBindings, nBound,
 					   MYSQL_TYPE_STRING);
 		    paramValStr = Tcl_GetStringFromObj(paramValObj, &len);
-		}		    
+		}
 		bufPtr = MysqlBindAllocBuffer(rdata->paramBindings, nBound,
 					      len+1);
 		memcpy(bufPtr, paramValStr, len);
 		rdata->paramLengths[nBound] = len;
 		MysqlBindSetLength(rdata->paramBindings, nBound,
 				   &(rdata->paramLengths[nBound]));
-		break; 
+		break;
 
 	    }
 	} else {
@@ -3134,8 +3134,8 @@ ResultSetConstructor(
     }
 
     /* Execute the statement */
-    
-    /* 
+
+    /*
      * It is tempting to conserve client memory here by omitting
      * the call to 'mysql_stmt_store_result', but doing so causes
      * 'calls out of sync' errors when attempting to prepare a
@@ -3260,7 +3260,7 @@ ResultSetNextrowMethod(
     int nColumns = 0;		/* Number of columns in the result set */
     Tcl_Obj* colName;		/* Name of the current column */
     Tcl_Obj* resultRow;		/* Row of the result set under construction */
-    
+
     Tcl_Obj* colObj;		/* Column obtained from the row */
     int status = TCL_ERROR;	/* Status return from this command */
     MYSQL_FIELD* fields;	/* Fields of the result set */
@@ -3324,7 +3324,7 @@ ResultSetNextrowMethod(
 		> MysqlBindGetBufferLength(resultBindings, i)) {
 		MysqlBindFreeBuffer(resultBindings, i);
 		MysqlBindAllocBuffer(resultBindings, i, resultLengths[i] + 1);
-		if (mysql_stmt_fetch_column(rdata->stmtPtr, 
+		if (mysql_stmt_fetch_column(rdata->stmtPtr,
 					    MysqlBindIndex(resultBindings, i),
 					    i, 0)) {
 		    goto cleanup;
@@ -3569,7 +3569,7 @@ Tdbcmysql_Init(
 	return TCL_ERROR;
     }
 
-    /* 
+    /*
      * Create per-interpreter data for the package
      */
 
@@ -3583,7 +3583,7 @@ Tdbcmysql_Init(
     for (i = 0; dataTypes[i].name != NULL; ++i) {
 	int new;
 	Tcl_HashEntry* entry =
-	    Tcl_CreateHashEntry(&(pidata->typeNumHash), 
+	    Tcl_CreateHashEntry(&(pidata->typeNumHash),
 				(const char*) (int) (dataTypes[i].num),
 				&new);
 	Tcl_Obj* nameObj = Tcl_NewStringObj(dataTypes[i].name, -1);
@@ -3591,7 +3591,7 @@ Tdbcmysql_Init(
 	Tcl_SetHashValue(entry, (ClientData) nameObj);
     }
 
-    /* 
+    /*
      * Find the connection class, and attach an 'init' method to it.
      */
 

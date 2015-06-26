@@ -95,7 +95,7 @@ options common to all TDBC drivers. The \fB-encoding\fR option will
 always fail unless the encoding is \fButf-8\fR; the database connection
 always uses UTF-8 encoding to be able to transfer arbitrary Unicode
 characters. The \fB-readonly\fR option must be \fB0\fR, because
-MySQL does not offer read-only connections. 
+MySQL does not offer read-only connections.
 .PP
 In addition, the following options are recognized:
 .IP "\fB-host\fR \fIhostname\fR"
@@ -115,7 +115,7 @@ Presents \fIname\fR as the user name to the MySQL server. Default is the
 current user ID.
 .IP "\fB-passwd\fR \fIpassword\fR"
 .IP "\fB-password\fR \fIpassword\fR"
-These two options are synonymous. They present the given \fIpassword\fR as 
+These two options are synonymous. They present the given \fIpassword\fR as
 the user's password to the MySQL server. Default is not to present a password.
 .IP "\fB-database\fR \fIname\fR"
 .IP "\fB-db\fR \fIname\fR"

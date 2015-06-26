@@ -78,8 +78,8 @@ package require tdbc
 	}
     }
 
-    # The 'init', 'begintransaction', 'commit, 'rollback', 'tables' 
-    # 'NeedCollationInfo', 'SetCollationInfo', and 'Columns' methods 
+    # The 'init', 'begintransaction', 'commit, 'rollback', 'tables'
+    # 'NeedCollationInfo', 'SetCollationInfo', and 'Columns' methods
     # are implemented in C.
 
     # The 'BuildForeignKeysStatements' method builds a SQL statement to
@@ -180,7 +180,7 @@ package require tdbc
     #     -- Returns a list of the names of the columns in the result.
     # nextdict
     #     -- Stores the next row of the result set in the given variable in
-    #        the caller's scope as a dictionary whose keys are 
+    #        the caller's scope as a dictionary whose keys are
     #        column names and whose values are column values, or else
     #        as a list of cells.
     # nextlist

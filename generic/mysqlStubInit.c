@@ -4,7 +4,7 @@
  *	Stubs tables for the foreign MySQL libraries so that
  *	Tcl extensions can use them without the linker's knowing about them.
  *
- * @CREATED@ 2010-12-27 19:26:47Z by genExtStubs.tcl from ../generic/mysqlStubDefs.txt
+ * @CREATED@ 2015-06-26 08:46:10Z by genExtStubs.tcl from ../generic/mysqlStubDefs.txt
  *
  * Copyright (c) 2010 by Kevin B. Kenny.
  *
@@ -29,9 +29,15 @@
  * Names of the libraries that might contain the MySQL API
  */
 
+#if defined(__CYGWIN__) && !defined(LIBPREFIX)
+# define LIBPREFIX "cyg"
+#else
+# define LIBPREFIX "lib"
+#endif
+
 static const char *const mysqlStubLibNames[] = {
     /* @LIBNAMES@: DO NOT EDIT THESE NAMES */
-    "libmysqlclient_r", "libmysqlclient", "libmysql", NULL
+    "mysqlclient_r", "mysqlclient", "mysql", NULL
     /* @END@ */
 };
 
@@ -135,11 +141,18 @@ MysqlInitStubs(Tcl_Interp* interp)
     status = TCL_ERROR;
     for (i = 0; status == TCL_ERROR && mysqlStubLibNames[i] != NULL; ++i) {
 	for (j = 0; status == TCL_ERROR && mysqlSuffixes[j] != NULL; ++j) {
-	    path = Tcl_NewStringObj(mysqlStubLibNames[i], -1);
+	    path = Tcl_NewStringObj(LIBPREFIX, -1);
+	    Tcl_AppendToObj(path, mysqlStubLibNames[j], -1);
+#ifdef __CYGWIN__
+	    Tcl_AppendToObj(path, "-", -1);
+	    Tcl_AppendToObj(path, mysqlSuffixes[j]+1, -1);
+#endif
 	    Tcl_AppendObjToObj(path, shlibext);
+#ifndef __CYGWIN__
 	    Tcl_AppendToObj(path, mysqlSuffixes[j], -1);
+#endif
 	    Tcl_IncrRefCount(path);
-	
+
 	    /* Try to load a client library and resolve symbols within it. */
 
 	    Tcl_ResetResult(interp);
@@ -149,8 +162,8 @@ MysqlInitStubs(Tcl_Interp* interp)
 	}
     }
 
-    /* 
-     * Either we've successfully loaded a library (status == TCL_OK), 
+    /*
+     * Either we've successfully loaded a library (status == TCL_OK),
      * or we've run out of library names (in which case status==TCL_ERROR
      * and the error message reflects the last unsuccessful load attempt).
      */
