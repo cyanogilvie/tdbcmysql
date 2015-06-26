@@ -98,4 +98,4 @@ typedef struct mysqlStubDefs {
 #define mysql_stmt_sqlstate (mysqlStubs->mysql_stmt_sqlstatePtr)
 #define mysql_stmt_store_result (mysqlStubs->mysql_stmt_store_resultPtr)
 #define mysql_store_result (mysqlStubs->mysql_store_resultPtr)
-MODULE_SCOPE mysqlStubDefs *mysqlStubs;
+MODULE_SCOPE const mysqlStubDefs *mysqlStubs;

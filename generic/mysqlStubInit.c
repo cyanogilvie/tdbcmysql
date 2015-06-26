@@ -101,7 +101,7 @@ static const char *const mysqlSymbolNames[] = {
  */
 
 static mysqlStubDefs mysqlStubsTable;
-mysqlStubDefs* mysqlStubs = &mysqlStubsTable;
+const mysqlStubDefs* mysqlStubs = &mysqlStubsTable;
 
 /*
  *-----------------------------------------------------------------------------
@@ -157,7 +157,7 @@ MysqlInitStubs(Tcl_Interp* interp)
 
 	    Tcl_ResetResult(interp);
 	    status = Tcl_LoadFile(interp, path, mysqlSymbolNames, 0,
-				  (void*)mysqlStubs, &handle);
+				  &mysqlStubsTable, &handle);
 	    Tcl_DecrRefCount(path);
 	}
     }
