@@ -142,7 +142,7 @@ MysqlInitStubs(Tcl_Interp* interp)
     for (i = 0; status == TCL_ERROR && mysqlStubLibNames[i] != NULL; ++i) {
 	for (j = 0; status == TCL_ERROR && (j < sizeof(mysqlSuffixes)/sizeof(mysqlSuffixes[0])); ++j) {
 	    path = Tcl_NewStringObj(LIBPREFIX, -1);
-	    Tcl_AppendToObj(path, mysqlStubLibNames[j], -1);
+	    Tcl_AppendToObj(path, mysqlStubLibNames[i], -1);
 #ifdef __CYGWIN__
 	    if (*mysqlSuffixes[j]) {
 		Tcl_AppendToObj(path, "-", -1);
