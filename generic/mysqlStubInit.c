@@ -37,7 +37,7 @@
 
 static const char *const mysqlStubLibNames[] = {
     /* @LIBNAMES@: DO NOT EDIT THESE NAMES */
-    "mysqlclient_r", "mysqlclient", "mysql", NULL
+    "mysqlclient_r", "mysqlclient", "mysql"
     /* @END@ */
 };
 
@@ -139,7 +139,7 @@ MysqlInitStubs(Tcl_Interp* interp)
     /* Walk the list of possible library names to find an MySQL client */
 
     status = TCL_ERROR;
-    for (i = 0; status == TCL_ERROR && mysqlStubLibNames[i] != NULL; ++i) {
+    for (i = 0; status == TCL_ERROR && (i < sizeof(mysqlStubLibNames)/sizeof(mysqlStubLibNames[0])); ++i) {
 	for (j = 0; status == TCL_ERROR && (j < sizeof(mysqlSuffixes)/sizeof(mysqlSuffixes[0])); ++j) {
 	    path = Tcl_NewStringObj(LIBPREFIX, -1);
 	    Tcl_AppendToObj(path, mysqlStubLibNames[i], -1);
