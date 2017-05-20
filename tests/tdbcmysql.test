@@ -37,7 +37,7 @@ if {[info exists env(TDBCMYSQL_TEST_SOCKET)]} {
     lappend connFlags -socket $env(TDBCMYSQL_TEST_SOCKET)
 }
 if {[info exists env(TDBCMYSQL_TEST_PORT)]} {
-    lappend connFlags -port $env(TDBCMYSQL_TEST PORT)
+    lappend connFlags -port $env(TDBCMYSQL_TEST_PORT)
 }
 
 #------------------------------------------------------------------------------
