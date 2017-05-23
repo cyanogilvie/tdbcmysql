@@ -26,6 +26,14 @@
 
 #include "fakemysql.h"
 
+/*
+ * PTR2INT/INT2PTR
+ */
+#if defined(HAVE_STDINT_H) && defined(HAVE_INTPTR_T)
+#  include <stdint.h>
+#  include "intptr_t.h"
+#endif
+
 /* Static data contained in this file */
 
 TCL_DECLARE_MUTEX(mysqlMutex);	/* Mutex protecting the global environment
@@ -2332,15 +2340,15 @@ ResultDescToTcl(
 	    entry = Tcl_CreateHashEntry(&names, field->name, &new);
 	    count = 1;
 	    while (!new) {
-		count = (int) Tcl_GetHashValue(entry);
+		count = PTR2INT(Tcl_GetHashValue(entry));
 		++count;
-		Tcl_SetHashValue(entry, (ClientData) count);
+		Tcl_SetHashValue(entry, /*(ClientData)*/ INT2PTR(count));
 		sprintf(numbuf, "#%d", count);
 		Tcl_AppendToObj(nameObj, numbuf, -1);
 		entry = Tcl_CreateHashEntry(&names, Tcl_GetString(nameObj),
 					    &new);
 	    }
-	    Tcl_SetHashValue(entry, (ClientData) count);
+	    Tcl_SetHashValue(entry, /*(ClientData)*/ INT2PTR(count));
 	    Tcl_ListObjAppendElement(NULL, retval, nameObj);
 	    Tcl_DecrRefCount(nameObj);
 	}
@@ -2590,7 +2598,7 @@ StatementParamsMethod(
 	}
 	typeHashEntry =
 	    Tcl_FindHashEntry(&(pidata->typeNumHash),
-			      (const char*) (sdata->params[i].dataType));
+			      /*(const char*)*/ INT2PTR(sdata->params[i].dataType));
 	if (typeHashEntry != NULL) {
 	    dataTypeName = (Tcl_Obj*) Tcl_GetHashValue(typeHashEntry);
 	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_TYPE], dataTypeName);
@@ -3239,7 +3247,7 @@ ResultSetNextrowMethod(
     Tcl_Obj *const objv[]	/* Parameter vector */
 ) {
 
-    int lists = (int) clientData;
+    int lists = PTR2INT(clientData);
 				/* Flag == 1 if lists are to be returned,
 				 * 0 if dicts are to be returned */
 
@@ -3584,7 +3592,7 @@ Tdbcmysql_Init(
 	int new;
 	Tcl_HashEntry* entry =
 	    Tcl_CreateHashEntry(&(pidata->typeNumHash),
-				(const char*) (int) (dataTypes[i].num),
+				/*(const char*)*/ INT2PTR(dataTypes[i].num),
 				&new);
 	Tcl_Obj* nameObj = Tcl_NewStringObj(dataTypes[i].name, -1);
 	Tcl_IncrRefCount(nameObj);
