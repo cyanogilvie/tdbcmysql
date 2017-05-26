@@ -4,7 +4,7 @@
  *	Stubs tables for the foreign MySQL libraries so that
  *	Tcl extensions can use them without the linker's knowing about them.
  *
- * @CREATED@ 2015-06-26 08:46:10Z by genExtStubs.tcl from ../generic/mysqlStubDefs.txt
+ * @CREATED@ 2017-05-26 05:57:32Z by genExtStubs.tcl from ../generic/mysqlStubDefs.txt
  *
  * Copyright (c) 2010 by Kevin B. Kenny.
  *
@@ -142,7 +142,7 @@ MysqlInitStubs(Tcl_Interp* interp)
     for (i = 0; status == TCL_ERROR && mysqlStubLibNames[i] != NULL; ++i) {
 	for (j = 0; status == TCL_ERROR && (j < sizeof(mysqlSuffixes)/sizeof(mysqlSuffixes[0])); ++j) {
 	    path = Tcl_NewStringObj(LIBPREFIX, -1);
-	    Tcl_AppendToObj(path, mysqlStubLibNames[j], -1);
+	    Tcl_AppendToObj(path, mysqlStubLibNames[i], -1);
 #ifdef __CYGWIN__
 	    if (*mysqlSuffixes[j]) {
 		Tcl_AppendToObj(path, "-", -1);
