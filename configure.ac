@@ -172,12 +172,11 @@ TEA_CONFIG_CFLAGS
 TEA_ENABLE_SYMBOLS
 
 #--------------------------------------------------------------------
-# INT2PTR  / PTR2INT  need to know about  intptr_t.
-# UINT2PTR / PTR2UINT need to know about uintptr_t.
+# Integer pointer types used by the (U)INT2PTR / PTR2(U)INT macros.
 #--------------------------------------------------------------------
 
 AC_TYPE_INTPTR_T
-#AC_TYPE_UINTPTR_T
+AC_TYPE_UINTPTR_T
 
 #--------------------------------------------------------------------
 # Everyone should be linking against the Tcl stub library.  If you

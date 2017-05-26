@@ -330,6 +330,7 @@ dist: dist-clean
 		$(srcdir)/generic/mysqlStubInit.c \
 		$(srcdir)/generic/mysqlStubs.h \
 		$(srcdir)/generic/tdbcmysql.c \
+		$(srcdir)/generic/int2ptr_ptr2int.h \
 		$(DIST_DIR)/generic/
 
 	mkdir $(DIST_DIR)/library

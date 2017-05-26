@@ -14,7 +14,7 @@
  */
 
 #ifdef _MSC_VER
-#define _CRT_SECURE_NO_WARNINGS
+#  define _CRT_SECURE_NO_WARNINGS
 #endif
 
 #include <tcl.h>
@@ -24,15 +24,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "fakemysql.h"
-
-/*
- * PTR2INT/INT2PTR
- */
-#if defined(HAVE_STDINT_H) && defined(HAVE_INTPTR_T)
+#ifdef HAVE_STDINT_H
 #  include <stdint.h>
-#  include "intptr_t.h"
 #endif
+
+#include "int2ptr_ptr2int.h"
+
+#include "fakemysql.h"
 
 /* Static data contained in this file */
 
