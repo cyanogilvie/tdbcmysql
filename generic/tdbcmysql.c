@@ -2340,13 +2340,13 @@ ResultDescToTcl(
 	    while (!new) {
 		count = PTR2INT(Tcl_GetHashValue(entry));
 		++count;
-		Tcl_SetHashValue(entry, /*(ClientData)*/ INT2PTR(count));
+		Tcl_SetHashValue(entry, INT2PTR(count));
 		sprintf(numbuf, "#%d", count);
 		Tcl_AppendToObj(nameObj, numbuf, -1);
 		entry = Tcl_CreateHashEntry(&names, Tcl_GetString(nameObj),
 					    &new);
 	    }
-	    Tcl_SetHashValue(entry, /*(ClientData)*/ INT2PTR(count));
+	    Tcl_SetHashValue(entry, INT2PTR(count));
 	    Tcl_ListObjAppendElement(NULL, retval, nameObj);
 	    Tcl_DecrRefCount(nameObj);
 	}
@@ -2596,7 +2596,7 @@ StatementParamsMethod(
 	}
 	typeHashEntry =
 	    Tcl_FindHashEntry(&(pidata->typeNumHash),
-			      /*(const char*)*/ INT2PTR(sdata->params[i].dataType));
+			      INT2PTR(sdata->params[i].dataType));
 	if (typeHashEntry != NULL) {
 	    dataTypeName = (Tcl_Obj*) Tcl_GetHashValue(typeHashEntry);
 	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_TYPE], dataTypeName);
@@ -3590,7 +3590,7 @@ Tdbcmysql_Init(
 	int new;
 	Tcl_HashEntry* entry =
 	    Tcl_CreateHashEntry(&(pidata->typeNumHash),
-				/*(const char*)*/ INT2PTR(dataTypes[i].num),
+				INT2PTR(dataTypes[i].num),
 				&new);
 	Tcl_Obj* nameObj = Tcl_NewStringObj(dataTypes[i].name, -1);
 	Tcl_IncrRefCount(nameObj);
