@@ -17,7 +17,6 @@
 #------------------------------------------------------------------------------
 
 PROJECT = tdbcmysql
-NEED_TCL_SOURCE = 1
 # Tcl 8.6 etc. compile with /DUNICODE. TDBC pre-nmake reform compiled
 # without -DUNICODE. Keep that behaviour for now. TBD
 USE_WIDECHAR_API  = 0
