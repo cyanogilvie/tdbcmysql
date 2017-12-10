@@ -71,12 +71,13 @@ PRJ_INCLUDES	= -I"$(TDBC_GENERIC_DIR)"
 PRJ_LIBS  = $(TDBCSTUBLIB)
 !endif
 
-# Disable standard targets because we have custom test and shell targets
+# Disable standard targets because we have custom test target
 DISABLE_STANDARD_TARGETS = 1
 !include "$(_RULESDIR)\targets.vc"
 
 setup: default-setup
 install: default-install default-install-stubs default-install-docs-n
+shell: default-shell
 clean: default-clean
 realclean: hose
 hose: default-hose
@@ -111,14 +112,4 @@ test: setup $(PROJECT)
 		package ifneeded tdbc $(TDBC_DOTVERSION) \
 			{source {$(TDBC_BIN_DIR:\=/)/tdbc.tcl};load {$(TDBC_BIN_DIR:\=/)/$(TDBC_LIB_FILE)} tdbc}"
 !endif
-
-shell: setup $(PROJECT)
-        @set TCL_LIBRARY=$(TCL_LIBRARY:\=/)
-	@set TDBC_LIBRARY=$(LIBDIR:\=/)
-!if $(TCLINSTALL)
-        @set PATH=$(_TCLDIR)\bin;$(PATH)
-!else
-        @set PATH=$(_TCLDIR)\win\$(BUILDDIRTOP);$(PATH)
-!endif
-        $(DEBUGGER) $(TCLSH) $(SCRIPT)
 
