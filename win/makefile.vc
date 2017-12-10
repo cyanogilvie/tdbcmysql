@@ -45,8 +45,6 @@ PRJHEADERS = \
 	$(GENERICDIR)\fakemysql.h \
 	$(GENERICDIR)\mysqlStubs.h
 
-INCLUDE_INSTALL_DIR	= $(_TCLDIR)\include
-
 ### tdbc
 !ifndef TDBC_DOTVERSION
 TDBC_DOTVERSION		= $(DOTVERSION)
