@@ -1,4 +1,4 @@
-# Package index file for tdbc::mysql
+# Index file to load the TDBC MySQL package.
 
 if {[catch {package require Tcl @TCL_VERSION_REQ@}]} {
     return
