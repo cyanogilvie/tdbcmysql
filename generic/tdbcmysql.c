@@ -991,7 +991,7 @@ TransferMysqlError(
 			     Tcl_NewStringObj(sqlstate, -1));
     Tcl_ListObjAppendElement(NULL, errorCode, Tcl_NewStringObj("MYSQL", -1));
     Tcl_ListObjAppendElement(NULL, errorCode,
-			     Tcl_NewIntObj(mysql_errno(mysqlPtr)));
+			     Tcl_NewWideIntObj(mysql_errno(mysqlPtr)));
     Tcl_SetObjErrorCode(interp, errorCode);
     Tcl_SetObjResult(interp, Tcl_NewStringObj(mysql_error(mysqlPtr), -1));
 }
@@ -1027,7 +1027,7 @@ TransferMysqlStmtError(
 			     Tcl_NewStringObj(sqlstate, -1));
     Tcl_ListObjAppendElement(NULL, errorCode, Tcl_NewStringObj("MYSQL", -1));
     Tcl_ListObjAppendElement(NULL, errorCode,
-			     Tcl_NewIntObj(mysql_stmt_errno(stmtPtr)));
+			     Tcl_NewWideIntObj(mysql_stmt_errno(stmtPtr)));
     Tcl_SetObjErrorCode(interp, errorCode);
     Tcl_SetObjResult(interp, Tcl_NewStringObj(mysql_stmt_error(stmtPtr), -1));
 }
@@ -1226,8 +1226,8 @@ ConfigureConnection(
 	    }
 	    break;
 	case TYPE_ISOLATION:
-	    if (Tcl_GetIndexFromObj(interp, objv[i+1], TclIsolationLevels,
-				    "isolation level", TCL_EXACT, &isolation)
+	    if (Tcl_GetIndexFromObjStruct(interp, objv[i+1], TclIsolationLevels,
+				    sizeof(char *), "isolation level", TCL_EXACT, &isolation)
 		!= TCL_OK) {
 		return TCL_ERROR;
 	    }
@@ -1567,16 +1567,16 @@ ConnectionColumnsMethod(
 	    }
 	    if (IS_NUM(field->type)) {
 		Tcl_DictObjPut(NULL, attrs, literals[LIT_PRECISION],
-			       Tcl_NewIntObj(field->length));
+			       Tcl_NewWideIntObj(field->length));
 	    } else if (field->charsetnr < cdata->nCollations) {
 		Tcl_DictObjPut(NULL, attrs, literals[LIT_PRECISION],
-		    Tcl_NewIntObj(field->length
+		    Tcl_NewWideIntObj(field->length
 			/ cdata->collationSizes[field->charsetnr]));
 	    }
 	    Tcl_DictObjPut(NULL, attrs, literals[LIT_SCALE],
-			   Tcl_NewIntObj(field->decimals));
+			   Tcl_NewWideIntObj(field->decimals));
 	    Tcl_DictObjPut(NULL, attrs, literals[LIT_NULLABLE],
-			   Tcl_NewIntObj(!(field->flags
+			   Tcl_NewWideIntObj(!(field->flags
 					   & (NOT_NULL_FLAG))));
 	    Tcl_DictObjPut(NULL, retval, name, attrs);
 	}
@@ -1851,7 +1851,7 @@ ConnectionNeedCollationInfoMethod(
 	return TCL_ERROR;
     }
 
-    Tcl_SetObjResult(interp, Tcl_NewIntObj(cdata->collationSizes == NULL));
+    Tcl_SetObjResult(interp, Tcl_NewWideIntObj(cdata->collationSizes == NULL));
     return TCL_OK;
 }
 
@@ -2602,9 +2602,9 @@ StatementParamsMethod(
 	    Tcl_DictObjPut(NULL, paramDesc, literals[LIT_TYPE], dataTypeName);
 	}
 	Tcl_DictObjPut(NULL, paramDesc, literals[LIT_PRECISION],
-		       Tcl_NewIntObj(sdata->params[i].precision));
+		       Tcl_NewWideIntObj(sdata->params[i].precision));
 	Tcl_DictObjPut(NULL, paramDesc, literals[LIT_SCALE],
-		       Tcl_NewIntObj(sdata->params[i].scale));
+		       Tcl_NewWideIntObj(sdata->params[i].scale));
 	Tcl_DictObjPut(NULL, retVal, paramName, paramDesc);
     }
 
@@ -3353,7 +3353,7 @@ ResultSetNextrowMethod(
 		break;
 
 	    case MYSQL_TYPE_LONG:
-		colObj = Tcl_NewIntObj(*(int*) bufPtr);
+		colObj = Tcl_NewWideIntObj(*(int*) bufPtr);
 		break;
 
 	    case MYSQL_TYPE_LONGLONG:
@@ -3571,7 +3571,7 @@ Tdbcmysql_Init(
 
     /* Provide the current package */
 
-    if (Tcl_PkgProvide(interp, "tdbc::mysql", PACKAGE_VERSION) == TCL_ERROR) {
+    if (Tcl_PkgProvideEx(interp, "tdbc::mysql", PACKAGE_VERSION, NULL) == TCL_ERROR) {
 	return TCL_ERROR;
     }
 

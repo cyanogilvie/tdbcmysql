@@ -37,14 +37,14 @@
 
 static const char *const mysqlStubLibNames[] = {
     /* @LIBNAMES@: DO NOT EDIT THESE NAMES */
-    "mysqlclient_r", "mysqlclient", "mysql", NULL
+    "mysqlclient_r", "mysqlclient", "mysql", "mariadbclient", "mariadb", NULL
     /* @END@ */
 };
 
 /* ABI Version numbers of the MySQL API that we can cope with */
 
 static const char mysqlSuffixes[][4] = {
-    "", ".18", ".17", ".16", ".15"
+    "", ".20", ".19", ".18", ".17", ".16", ".15"
 };
 
 /* Names of the functions that we need from MySQL */
