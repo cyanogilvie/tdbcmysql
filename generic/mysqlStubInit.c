@@ -126,7 +126,8 @@ MysqlInitStubs(Tcl_Interp* interp)
     Tcl_Obj* shlibext;		/* Extension to use for load modules */
     Tcl_LoadHandle handle = NULL;
 				/* Handle to a load module */
-    int i, j;
+    int i;
+    size_t j;
 
     /* Determine the shared library extension */
 

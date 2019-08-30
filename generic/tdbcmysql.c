@@ -83,7 +83,7 @@ enum LiteralIndex {
  */
 
 typedef struct PerInterpData {
-    int refCount;		/* Reference count */
+    size_t refCount;		/* Reference count */
     Tcl_Obj* literals[LIT__END];
 				/* Literal pool */
     Tcl_HashTable typeNumHash;	/* Lookup table for type numbers */
@@ -95,7 +95,7 @@ typedef struct PerInterpData {
 #define DecrPerInterpRefCount(x)		\
     do {					\
 	PerInterpData* _pidata = x;		\
-	if ((--(_pidata->refCount)) <= 0) {	\
+	if (((_pidata->refCount))-- <= 1) {	\
 	    DeletePerInterpData(_pidata);	\
 	}					\
     } while(0)
@@ -113,7 +113,7 @@ typedef struct PerInterpData {
  */
 
 typedef struct ConnectionData {
-    int refCount;		/* Reference count. */
+    size_t refCount;		/* Reference count. */
     PerInterpData* pidata;	/* Per-interpreter data */
     MYSQL* mysqlPtr;		/* MySql connection handle */
     unsigned int nCollations;	/* Number of collations defined */
@@ -136,7 +136,7 @@ typedef struct ConnectionData {
 #define DecrConnectionRefCount(x)		\
     do {					\
 	ConnectionData* conn = x;		\
-	if ((--(conn->refCount)) <= 0) {	\
+	if (((conn->refCount)--) <= 01) {	\
 	    DeleteConnection(conn);		\
 	}					\
     } while(0)
@@ -151,7 +151,7 @@ typedef struct ConnectionData {
  */
 
 typedef struct StatementData {
-    int refCount;		/* Reference count */
+    size_t refCount;		/* Reference count */
     ConnectionData* cdata;	/* Data for the connection to which this
 				 * statement pertains. */
     Tcl_Obj* subVars;	        /* List of variables to be substituted, in the
@@ -172,7 +172,7 @@ typedef struct StatementData {
 #define DecrStatementRefCount(x)		\
     do {					\
 	StatementData* stmt = (x);		\
-	if (--(stmt->refCount) <= 0) {		\
+	if ((stmt->refCount--) <= 1) {		\
 	    DeleteStatement(stmt);		\
 	}					\
     } while(0)
@@ -209,7 +209,7 @@ typedef struct ParamData {
  */
 
 typedef struct ResultSetData {
-    int refCount;		/* Reference count */
+    size_t refCount;		/* Reference count */
     StatementData* sdata;	/* Statement that generated this result set */
     MYSQL_STMT* stmtPtr;	/* Handle to the MySQL statement object */
     Tcl_Obj* paramValues;	/* List of parameter values */
@@ -229,7 +229,7 @@ typedef struct ResultSetData {
 #define DecrResultSetRefCount(x)		\
     do {					\
 	ResultSetData* rs = (x);		\
-	if (--(rs->refCount) <= 0) {		\
+	if ((rs->refCount--) <= 0) {		\
 	    DeleteResultSet(rs);		\
 	}					\
     } while(0)
@@ -364,7 +364,7 @@ static const struct {
       "SELECT '', @@WAIT_TIMEOUT" },
     { "-user",	      TYPE_STRING,    INDX_USER,	  CONN_OPT_FLAG_MOD,
       "SELECT '', USER()" },
-    { NULL,	      0,	      0,		  0 }
+    { NULL,	      TYPE_STRING,	      0,		  0, NULL }
 };
 
 /* Tables of isolation levels: Tcl, SQL, and MySQL 'tx_isolation' */
@@ -2321,7 +2321,7 @@ ResultDescToTcl(
     Tcl_Obj* retval = Tcl_NewObj();
     Tcl_HashTable names;	/* Hash table to resolve name collisions */
     Tcl_Obj* nameObj;		/* Name of a result column */
-    int new;			/* Flag == 1 if a result column is unique */
+    int isNew;			/* Flag == 1 if a result column is unique */
     Tcl_HashEntry* entry;	/* Hash table entry for a column name */
     int count;			/* Number used to disambiguate a column name */
 
@@ -2335,16 +2335,16 @@ ResultDescToTcl(
 	    MYSQL_FIELD* field = MysqlFieldIndex(fields, i);
 	    nameObj = Tcl_NewStringObj(field->name, field->name_length);
 	    Tcl_IncrRefCount(nameObj);
-	    entry = Tcl_CreateHashEntry(&names, field->name, &new);
+	    entry = Tcl_CreateHashEntry(&names, field->name, &isNew);
 	    count = 1;
-	    while (!new) {
+	    while (!isNew) {
 		count = PTR2INT(Tcl_GetHashValue(entry));
 		++count;
 		Tcl_SetHashValue(entry, INT2PTR(count));
 		sprintf(numbuf, "#%d", count);
 		Tcl_AppendToObj(nameObj, numbuf, -1);
 		entry = Tcl_CreateHashEntry(&names, Tcl_GetString(nameObj),
-					    &new);
+					    &isNew);
 	    }
 	    Tcl_SetHashValue(entry, INT2PTR(count));
 	    Tcl_ListObjAppendElement(NULL, retval, nameObj);
@@ -3066,7 +3066,7 @@ ResultSetConstructor(
 	    real:
 		MysqlBindSetBufferType(rdata->paramBindings, nBound,
 				       MYSQL_TYPE_DOUBLE);
-		bufPtr = MysqlBindAllocBuffer(rdata->paramBindings,
+		bufPtr = (char *)MysqlBindAllocBuffer(rdata->paramBindings,
 					      nBound, sizeof(double));
 		rdata->paramLengths[nBound] = sizeof(double);
 		MysqlBindSetLength(rdata->paramBindings, nBound,
@@ -3082,7 +3082,7 @@ ResultSetConstructor(
 	    biginteger:
 		MysqlBindSetBufferType(rdata->paramBindings, nBound,
 				       MYSQL_TYPE_LONGLONG);
-		bufPtr = MysqlBindAllocBuffer(rdata->paramBindings, nBound,
+		bufPtr = (char *)MysqlBindAllocBuffer(rdata->paramBindings, nBound,
 					      sizeof(Tcl_WideInt));
 		rdata->paramLengths[nBound] = sizeof(Tcl_WideInt);
 		MysqlBindSetLength(rdata->paramBindings, nBound,
@@ -3100,7 +3100,7 @@ ResultSetConstructor(
 	    smallinteger:
 		MysqlBindSetBufferType(rdata->paramBindings, nBound,
 				       MYSQL_TYPE_LONG);
-		bufPtr = MysqlBindAllocBuffer(rdata->paramBindings, nBound,
+		bufPtr = (char *)MysqlBindAllocBuffer(rdata->paramBindings, nBound,
 					      sizeof(int));
 		rdata->paramLengths[nBound] = sizeof(int);
 		MysqlBindSetLength(rdata->paramBindings, nBound,
@@ -3124,7 +3124,7 @@ ResultSetConstructor(
 					   MYSQL_TYPE_STRING);
 		    paramValStr = Tcl_GetStringFromObj(paramValObj, &len);
 		}
-		bufPtr = MysqlBindAllocBuffer(rdata->paramBindings, nBound,
+		bufPtr = (char *)MysqlBindAllocBuffer(rdata->paramBindings, nBound,
 					      len+1);
 		memcpy(bufPtr, paramValStr, len);
 		rdata->paramLengths[nBound] = len;
@@ -3547,7 +3547,10 @@ CloneResultSet(
  *-----------------------------------------------------------------------------
  */
 
-extern DLLEXPORT int
+#ifdef __cplusplus
+extern "C" {
+#endif  /* __cplusplus */
+DLLEXPORT int
 Tdbcmysql_Init(
     Tcl_Interp* interp		/* Tcl interpreter */
 ) {
@@ -3587,11 +3590,11 @@ Tdbcmysql_Init(
     }
     Tcl_InitHashTable(&(pidata->typeNumHash), TCL_ONE_WORD_KEYS);
     for (i = 0; dataTypes[i].name != NULL; ++i) {
-	int new;
+	int isNew;
 	Tcl_HashEntry* entry =
 	    Tcl_CreateHashEntry(&(pidata->typeNumHash),
 				INT2PTR(dataTypes[i].num),
-				&new);
+				&isNew);
 	Tcl_Obj* nameObj = Tcl_NewStringObj(dataTypes[i].name, -1);
 	Tcl_IncrRefCount(nameObj);
 	Tcl_SetHashValue(entry, (ClientData) nameObj);
@@ -3715,6 +3718,9 @@ Tdbcmysql_Init(
 
     return TCL_OK;
 }
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
 
 /*
  *-----------------------------------------------------------------------------
