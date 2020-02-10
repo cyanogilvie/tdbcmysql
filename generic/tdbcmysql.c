@@ -454,6 +454,9 @@ static int ConnectionTablesMethod(ClientData clientData, Tcl_Interp* interp,
 static int ConnectionDetachMethod(ClientData clientData, Tcl_Interp* interp,
 				  Tcl_ObjectContext context,
 				  int objc, Tcl_Obj *const objv[]);
+static int ConnectionConnectedMethod(ClientData clientData, Tcl_Interp* interp,
+				  Tcl_ObjectContext context,
+				  int objc, Tcl_Obj *const objv[]);
 
 static void DeleteConnectionMetadata(ClientData clientData);
 static void DeleteConnection(ConnectionData* cdata);
@@ -629,6 +632,14 @@ const static Tcl_MethodType ConnectionDetachMethodType = {
     NULL,			/* deleteProc */
     NULL			/* cloneProc */
 };
+const static Tcl_MethodType ConnectionConnectedMethodType = {
+    TCL_OO_METHOD_VERSION_CURRENT,
+				/* version */
+    "connected",		/* name */
+    ConnectionConnectedMethod,	/* callProc */
+    NULL,			/* deleteProc */
+    NULL			/* cloneProc */
+};
 
 const static Tcl_MethodType* ConnectionMethods[] = {
     &ConnectionBegintransactionMethodType,
@@ -641,6 +652,7 @@ const static Tcl_MethodType* ConnectionMethods[] = {
     &ConnectionSetCollationInfoMethodType,
     &ConnectionTablesMethodType,
     &ConnectionDetachMethodType,
+    &ConnectionConnectedMethodType,
     NULL
 };
 
@@ -2270,6 +2282,54 @@ ConnectionDetachMethod(
     }
 
     Tcl_SetObjResult(interp, Tcl_NewStringObj(handle, -1));
+
+    return TCL_OK;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * ConnectionConnectedMethod --
+ *
+ *	Method that checks the current connection status
+ *
+ * Usage:
+ * 	$connection connected
+ *
+ * Parameters:
+ *	None.
+ *
+ * Results:
+ *	true if the database connection is currently valid, false otherwise
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static int
+ConnectionConnectedMethod(
+    ClientData clientData,	/* Completion type */
+    Tcl_Interp* interp,		/* Tcl interpreter */
+    Tcl_ObjectContext objectContext, /* Object context */
+    int objc,			/* Parameter count */
+    Tcl_Obj *const objv[]	/* Parameter vector */
+) {
+    Tcl_Object thisObject = Tcl_ObjectContextObject(objectContext);
+				/* The current connection object */
+    ConnectionData* cdata = (ConnectionData*)
+	Tcl_ObjectGetMetadata(thisObject, &connectionDataType);
+				/* Instance data */
+    int		connected = 1;
+
+    /* Check parameters */
+
+    if (objc != 2) {
+	Tcl_WrongNumArgs(interp, 2, objv, "");
+	return TCL_ERROR;
+    }
+
+    connected = (mysql_ping(cdata->mysqlPtr) == 0);
+
+    Tcl_SetObjResult(interp, cdata->pidata->literals[connected ? LIT_1 : LIT_0]);
 
     return TCL_OK;
 }

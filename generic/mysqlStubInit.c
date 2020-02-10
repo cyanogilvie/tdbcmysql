@@ -92,6 +92,7 @@ static const char *const mysqlSymbolNames[] = {
     "mysql_stmt_sqlstate",
     "mysql_stmt_store_result",
     "mysql_store_result",
+    "mysql_ping",
     NULL
     /* @END@ */
 };

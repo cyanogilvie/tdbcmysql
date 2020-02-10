@@ -56,6 +56,7 @@ typedef struct mysqlStubDefs {
     const char* (STDCALL*mysql_stmt_sqlstatePtr)(MYSQL_STMT*);
     int (STDCALL*mysql_stmt_store_resultPtr)(MYSQL_STMT*);
     MYSQL_RES* (STDCALL*mysql_store_resultPtr)(MYSQL*);
+    int (STDCALL*mysql_pingPtr)(MYSQL*);
 } mysqlStubDefs;
 #define mysql_server_init (mysqlStubs->mysql_server_initPtr)
 #define mysql_server_end (mysqlStubs->mysql_server_endPtr)
@@ -98,4 +99,5 @@ typedef struct mysqlStubDefs {
 #define mysql_stmt_sqlstate (mysqlStubs->mysql_stmt_sqlstatePtr)
 #define mysql_stmt_store_result (mysqlStubs->mysql_stmt_store_resultPtr)
 #define mysql_store_result (mysqlStubs->mysql_store_resultPtr)
+#define mysql_ping (mysqlStubs->mysql_pingPtr)
 MODULE_SCOPE const mysqlStubDefs *mysqlStubs;
