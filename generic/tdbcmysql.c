@@ -744,6 +744,7 @@ const static Tcl_MethodType* ResultSetMethods[] = {
 
 TCL_DECLARE_MUTEX(DetachedConnectionsMutex);
 static int            DetachedConnectionsSeq = 0;
+static int            DetachedConnectionsInitialized = 0;
 static Tcl_HashTable  DetachedConnections;
 
 /*
@@ -3823,7 +3824,10 @@ Tdbcmysql_Init(
     /* Create the detached connection global hash */
 
     Tcl_MutexLock(&DetachedConnectionsMutex);
-    Tcl_InitHashTable(&DetachedConnections, TCL_STRING_KEYS);
+    if (DetachedConnectionsInitialized == 0) {
+	Tcl_InitHashTable(&DetachedConnections, TCL_STRING_KEYS);
+	DetachedConnectionsInitialized = 1;
+    }
     Tcl_MutexUnlock(&DetachedConnectionsMutex);
 
     /*
