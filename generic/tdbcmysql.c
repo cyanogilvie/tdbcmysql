@@ -1,3 +1,62 @@
+#if DEBUG
+#    include <signal.h>
+#    include <unistd.h>
+#    include <time.h>
+#    include "names.h"
+#    define DBG(...) fprintf(stdout, ##__VA_ARGS__)
+#    define FDBG(...) fprintf(stdout, ##__VA_ARGS__)
+#    define DEBUGGER raise(SIGTRAP)
+#    define TIME(label, task) \
+    do { \
+	struct timespec first; \
+	struct timespec second; \
+	struct timespec after; \
+	double empty; \
+	double delta; \
+	clock_gettime(CLOCK_MONOTONIC, &first); /* Warm up the call */ \
+	clock_gettime(CLOCK_MONOTONIC, &first); \
+	clock_gettime(CLOCK_MONOTONIC, &second); \
+	task; \
+	clock_gettime(CLOCK_MONOTONIC, &after); \
+	empty = second.tv_sec - first.tv_sec + (second.tv_nsec - first.tv_nsec)/1e9; \
+	delta = after.tv_sec - second.tv_sec + (after.tv_nsec - second.tv_nsec)/1e9 - empty; \
+	DBG("Time for %s: %.1f microseconds\n", label, delta * 1e6); \
+    } while(0)
+
+int g_statements = 0;
+int g_connections = 0;
+#define DUMP_STATEMENTS(cdata) \
+    do { \
+	Tcl_HashEntry* he = NULL; \
+	Tcl_HashSearch search; \
+	he = Tcl_FirstHashEntry(cdata->statements, &search); \
+	while (he) { \
+	    StatementData* s = Tcl_GetHashValue(he); \
+	    DBG("\t-%s- %s, refCount %ld, %s\n", s && s->cdata ? "live" : "frozen", name(s), s ? s->refCount : -1, (char*)Tcl_GetHashKey(cdata->statements, he)); \
+	    he = Tcl_NextHashEntry(&search); \
+	} \
+    } while (0)
+
+#define DUMP_LIST(sdata) \
+    do { \
+	struct mysqlStatementRef* p = (sdata)->mysqlStatements; \
+	DBG("\t  Associated Tcl_Objs for %s/%s%s\n", name(sdata->cdata), name(sdata), p ? "" : ": none"); \
+	while (p) { \
+	    Tcl_ObjIntRep* ir = Tcl_FetchIntRep(p->obj, &mysqlStatementType); \
+	    DBG("\t\t%s[%d], ir: (%s)\n", name(p->obj), p->obj->refCount, ir ? name(ir->twoPtrValue.ptr1) : "<unlinked>"); \
+	    p = p->next; \
+	} \
+    } while(0)
+
+#else
+#    define DBG(...) /* nop */
+#    define FDBG(...) /* nop */
+#    define DEBUGGER /* nop */
+#    define TIME(label, task) task
+#    define DUMP_STATEMENTS(cdata) /* nop */
+#    define DUMP_LIST(sdata) /* nop */
+#endif
+
 /*
  * tdbcmysql.c --
  *
@@ -31,6 +90,8 @@
 #include "int2ptr_ptr2int.h"
 
 #include "fakemysql.h"
+
+#include "tip445.h"
 
 /* Static data contained in this file */
 
@@ -119,6 +180,9 @@ typedef struct ConnectionData {
     unsigned int nCollations;	/* Number of collations defined */
     int* collationSizes;	/* Character lengths indexed by collation ID */
     int flags;
+    Tcl_HashTable* statements;	/* Prepared statements */
+    int untilAge;		/* How many statements have been allocated
+				 * since we aged the cache */
 } ConnectionData;
 
 /*
@@ -141,6 +205,11 @@ typedef struct ConnectionData {
 	}					\
     } while(0)
 
+struct mysqlStatementRef {
+    Tcl_Obj* obj;
+    struct mysqlStatementRef* next;
+};
+
 /*
  * Structure that carries the data for a MySQL prepared statement.
  *
@@ -158,20 +227,30 @@ typedef struct StatementData {
 				 * order in which they appear in the
 				 * statement */
     struct ParamData *params;	/* Data types and attributes of parameters */
+    char* origSql;		/* The SQL statement as it came from
+				 * the caller */
     Tcl_Obj* nativeSql;		/* Native SQL statement to pass into
 				 * MySQL */
     MYSQL_STMT* stmtPtr;	/* MySQL statement handle */
     MYSQL_RES* metadataPtr;	/* MySQL result set metadata */
     Tcl_Obj* columnNames;	/* Column names in the result set */
     int flags;
+    struct mysqlStatementRef* mysqlStatements;
+    				/* Linked list of mysqlStatement objs so
+				 * we can expire their intreps when
+				 * detaching or destroying a connection */
+    int heat;
 } StatementData;
 #define IncrStatementRefCount(x)		\
     do {					\
-	++((x)->refCount);			\
+	StatementData* stmt = (x);		\
+	DBG("\t> IncrStatementRefCount %s/%s %ld -> %ld @ " __FILE__ " %s %d\n", name(stmt->cdata), name(stmt), stmt->refCount, stmt->refCount+1, __FUNCTION__, __LINE__); \
+	++(stmt->refCount);			\
     } while (0)
 #define DecrStatementRefCount(x)		\
     do {					\
 	StatementData* stmt = (x);		\
+	DBG("\t< DecrStatementRefCount %s/%s %ld -> %ld @ " __FILE__ " %s %d\n", name(stmt->cdata), name(stmt), stmt->refCount, stmt->refCount-1, __FUNCTION__, __LINE__); \
 	if (--(stmt->refCount) <= 0) {		\
 	    DeleteStatement(stmt);		\
 	}					\
@@ -313,6 +392,8 @@ enum OptStringIndex {
 #define CONN_OPT_FLAG_SSL 0x2	/* Configuration change requires setting
 				 * SSL options */
 #define CONN_OPT_FLAG_ALIAS 0x4	/* Configuration option is an alias */
+#define CONN_OPT_FLAG_NOQUERY 0x8
+				/* Option can't be queried at runtime */
 
  /* Table of configuration options */
 
@@ -366,7 +447,7 @@ static const struct {
       "SELECT '', @@WAIT_TIMEOUT" },
     { "-user",	      TYPE_STRING,    INDX_USER,	  CONN_OPT_FLAG_MOD,
       "SELECT '', USER()" },
-    { "-attach",      TYPE_ATTACH,    INDX_ATTACH,	  0,
+    { "-attach",      TYPE_ATTACH,    INDX_ATTACH,	  CONN_OPT_FLAG_NOQUERY,
       NULL },
     { NULL,	      TYPE_STRING,	      0,		  0, NULL }
 };
@@ -381,10 +462,10 @@ static const char *const TclIsolationLevels[] = {
     NULL
 };
 static const char *const SqlIsolationLevels[] = {
-    "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
-    "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
-    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
-    "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+    "SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED",
+    "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED",
+    "SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+    "SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE",
     NULL
 };
 enum IsolationLevel {
@@ -419,6 +500,9 @@ static Tcl_Obj* QueryConnectionOption(ConnectionData* cdata, Tcl_Interp* interp,
 static int ConfigureConnection(ConnectionData* cdata, Tcl_Interp* interp,
 			       int objc, Tcl_Obj *const objv[], int skip);
 static int ConnectionConstructor(ClientData clientData, Tcl_Interp* interp,
+				 Tcl_ObjectContext context,
+				 int objc, Tcl_Obj *const objv[]);
+static int ConnectionDestructor(ClientData clientData, Tcl_Interp* interp,
 				 Tcl_ObjectContext context,
 				 int objc, Tcl_Obj *const objv[]);
 static int ConnectionBegintransactionMethod(ClientData clientData,
@@ -457,11 +541,15 @@ static int ConnectionDetachMethod(ClientData clientData, Tcl_Interp* interp,
 static int ConnectionConnectedMethod(ClientData clientData, Tcl_Interp* interp,
 				  Tcl_ObjectContext context,
 				  int objc, Tcl_Obj *const objv[]);
+static int ConnectionStatementInfoMethod(ClientData clientData, Tcl_Interp* interp,
+				  Tcl_ObjectContext context,
+				  int objc, Tcl_Obj *const objv[]);
 
 static void DeleteConnectionMetadata(ClientData clientData);
 static void DeleteConnection(ConnectionData* cdata);
 static int CloneConnection(Tcl_Interp* interp, ClientData oldClientData,
 			   ClientData* newClientData);
+static void DeleteDestroyMetadata(ClientData clientData) { /* nop */ }
 
 static StatementData* NewStatement(ConnectionData* cdata);
 static MYSQL_STMT* AllocAndPrepareStatement(Tcl_Interp* interp,
@@ -505,6 +593,12 @@ static int CloneResultSet(Tcl_Interp* interp, ClientData oldClientData,
 static void DeleteCmd(ClientData clientData);
 static int CloneCmd(Tcl_Interp* interp,
 		    ClientData oldMetadata, ClientData* newMetadata);
+static int GetMysqlStatementFromObj(Tcl_Interp* interp, Tcl_Obj* obj,
+				 ConnectionData* cdata,
+				 StatementData** sdataOut);
+static void RemoveAllStatementRefs(StatementData* sdata);
+static void ThawTclObj(Tcl_Obj** obj);
+static void FreezeTclObj(Tcl_Obj** obj);
 
 static void DeletePerInterpData(PerInterpData* pidata);
 
@@ -517,6 +611,16 @@ const static Tcl_ObjectMetadataType connectionDataType = {
     DeleteConnectionMetadata,	/* deleteProc */
     CloneConnection		/* cloneProc - should cause an error
 				 * 'cuz connections aren't clonable */
+};
+
+/* Metadata type that flags a detach in progress */
+
+const static Tcl_ObjectMetadataType connectionDestroyType = {
+    TCL_OO_METADATA_VERSION_CURRENT,
+				/* version */
+    "ConnectionDetaching",	/* name */
+    DeleteDestroyMetadata,	/* deleteProc */
+    NULL			/* cloneProc */
 };
 
 /* Metadata type that holds statement data */
@@ -550,6 +654,15 @@ const static Tcl_MethodType ConnectionConstructorType = {
     ConnectionConstructor,	/* callProc */
     DeleteCmd,			/* deleteProc */
     CloneCmd			/* cloneProc */
+};
+
+const static Tcl_MethodType ConnectionDestructorType = {
+    TCL_OO_METHOD_VERSION_CURRENT,
+				/* version */
+    "DESTRUCTOR",		/* name */
+    ConnectionDestructor,	/* callProc */
+    NULL,			/* deleteProc */
+    NULL			/* cloneProc */
 };
 
 const static Tcl_MethodType ConnectionBegintransactionMethodType = {
@@ -640,6 +753,14 @@ const static Tcl_MethodType ConnectionConnectedMethodType = {
     NULL,			/* deleteProc */
     NULL			/* cloneProc */
 };
+const static Tcl_MethodType ConnectionStatementInfoMethodType = {
+    TCL_OO_METHOD_VERSION_CURRENT,
+				/* version */
+    "statementinfo",		/* name */
+    ConnectionStatementInfoMethod,	/* callProc */
+    NULL,			/* deleteProc */
+    NULL			/* cloneProc */
+};
 
 const static Tcl_MethodType* ConnectionMethods[] = {
     &ConnectionBegintransactionMethodType,
@@ -653,6 +774,7 @@ const static Tcl_MethodType* ConnectionMethods[] = {
     &ConnectionTablesMethodType,
     &ConnectionDetachMethodType,
     &ConnectionConnectedMethodType,
+    &ConnectionStatementInfoMethodType,
     NULL
 };
 
@@ -737,7 +859,7 @@ const static Tcl_MethodType* ResultSetMethods[] = {
 };
 
 /*
- * Global hash containing the detached pg connections indexed by handle.
+ * Global hash containing the detached mysql connections indexed by handle.
  * Access to DetachedConnections and DetachedConnectionsSeq must be
  * protected by the DetachedConnectionsMutex mutex!
  */
@@ -746,6 +868,27 @@ TCL_DECLARE_MUTEX(DetachedConnectionsMutex);
 static int            DetachedConnectionsSeq = 0;
 static int            DetachedConnectionsInitialized = 0;
 static Tcl_HashTable  DetachedConnections;
+
+/*
+ * Tcl_ObjType that caches prepared statements:
+ *
+ * twoPtrValue
+ *	.ptr1 = StatementData*, ptr1 owns a ref on the StatementData
+ *	.ptr2 = MYSQL* to which the StatementData is associated
+ */
+
+static void FreeStatement(Tcl_Obj* obj);
+static void DupStatement(Tcl_Obj* src, Tcl_Obj* dup);
+static void UpdateStringOfStatement(Tcl_Obj* obj);
+
+Tcl_ObjType mysqlStatementType = {
+    "mysqlStatement",		/* name */
+    FreeStatement,		/* freeIntRepProc */
+    DupStatement,		/* dupIntRepProc */
+    UpdateStringOfStatement,	/* updateStringProc */
+    NULL			/* setFromAnyProc - we don't register this type */
+};
+
 
 /*
  *-----------------------------------------------------------------------------
@@ -1169,6 +1312,7 @@ ConfigureConnection(
     Tcl_Obj* optval;
     Tcl_HashEntry* he = NULL;
     int res = TCL_OK;
+				/* Is this a new connection? */
     ConnectionData* detachedcdata = NULL;
     				/* The detached connection data we retrieved
 				 * from DetachedConnections
@@ -1186,7 +1330,9 @@ ConfigureConnection(
 	if (objc == skip) {
 	    retval = Tcl_NewObj();
 	    for (i = 0; ConnOptions[i].name != NULL; ++i) {
-		if (ConnOptions[i].flags & CONN_OPT_FLAG_ALIAS) continue;
+		if (ConnOptions[i].flags & (
+			CONN_OPT_FLAG_ALIAS | CONN_OPT_FLAG_NOQUERY
+		)) continue;
 		optval = QueryConnectionOption(cdata, interp, i);
 		if (optval == NULL) {
 		    return TCL_ERROR;
@@ -1341,7 +1487,10 @@ ConfigureConnection(
 		detachedcdata = Tcl_GetHashValue(he);
 		savedpidata = cdata->pidata;
 		memcpy(cdata, detachedcdata, sizeof(ConnectionData));
+		//cdata->refCount = 1;
+		DBG("Thawed ConnectionData %s -> %s, refCount: %ld\n", name(detachedcdata), name(cdata), cdata->refCount);
 		ckfree(detachedcdata);
+		FDBG("Freeing frozen ConnectionData %s, current connections: %d\n", name(detachedcdata), --g_connections);
 		detachedcdata = NULL;
 		cdata->pidata = savedpidata;
 		savedpidata = NULL;
@@ -1350,6 +1499,9 @@ ConfigureConnection(
 		he = NULL;
 	    }
 	    Tcl_MutexUnlock(&DetachedConnectionsMutex);
+	    DBG("Frozen statements in attached cdata %s ->statements %s\n", name(cdata), name(cdata->statements));
+	    DUMP_STATEMENTS(cdata);
+
 	    if (res != TCL_OK) {
 		return res;
 	    }
@@ -1361,6 +1513,9 @@ ConfigureConnection(
     }
 
     if (cdata->mysqlPtr == NULL) {
+	cdata->statements = ckalloc(sizeof(Tcl_HashTable));
+	Tcl_InitHashTable(cdata->statements, TCL_STRING_KEYS);
+	DBG("Init cdata %s ->statements %s\n", name(cdata), name(cdata->statements));
 
 	/* Configuring a new connection. Open the database */
 
@@ -1440,9 +1595,9 @@ ConfigureConnection(
     /* Timeout */
 
     if (timeout != 0) {
-        int result;
+	int result;
 	Tcl_Obj* query = Tcl_ObjPrintf("SET SESSION WAIT_TIMEOUT = %d\n",
-				       timeout);
+				    timeout);
 	Tcl_IncrRefCount(query);
 	result = mysql_query(cdata->mysqlPtr, Tcl_GetString(query));
 	Tcl_DecrRefCount(query);
@@ -1492,12 +1647,16 @@ ConnectionConstructor(
     /* Hang client data on this connection */
 
     cdata = (ConnectionData*) ckalloc(sizeof(ConnectionData));
+    FDBG("Allocated ConnectionData %s, current connections: %d\n", name(cdata), ++g_connections);
+    memset(cdata, 0, sizeof(ConnectionData));
     cdata->refCount = 1;
     cdata->pidata = pidata;
     cdata->mysqlPtr = NULL;
     cdata->nCollations = 0;
     cdata->collationSizes = NULL;
     cdata->flags = 0;
+    cdata->statements = NULL;
+    cdata->untilAge = 100;
     IncrPerInterpRefCount(pidata);
     Tcl_ObjectSetMetadata(thisObject, &connectionDataType, (ClientData) cdata);
 
@@ -1509,6 +1668,104 @@ ConnectionConstructor(
 
     return TCL_OK;
 
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * ConnectionDestructor --
+ *
+ *	Destructor for ::tdbc::mysql::connection, which represents a
+ *	database connection.
+ *
+ * Results:
+ *	Returns a standard Tcl result.
+ *
+ * The destructor takes care of decrementing the ref for each statement in
+ * cdata->statements, unless we are detaching.
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static int
+ConnectionDestructor(
+    ClientData clientData,	/* Unused */
+    Tcl_Interp* interp,		/* Tcl interpreter */
+    Tcl_ObjectContext context,	/* Object context */
+    int objc,			/* Parameter count */
+    Tcl_Obj *const objv[]	/* Parameter vector */
+) {
+    Tcl_Object thisObject = Tcl_ObjectContextObject(context);
+				/* The current object */
+    ConnectionData* cdata = (ConnectionData*)
+	Tcl_ObjectGetMetadata(thisObject, &connectionDataType);
+    const char* destroytype = Tcl_ObjectGetMetadata(thisObject,
+	    					  &connectionDestroyType);
+    				/* Are we detaching?  NULL if not */
+    Tcl_HashSearch search;
+    Tcl_HashEntry* he = NULL;
+    StatementData* sdata = NULL;
+
+    DBG(" ###> Connection destructor mode: %s %s, cdata: %s\n", destroytype ? destroytype : "default", name(thisObject), name(cdata));
+    if (destroytype == NULL) {
+	if (cdata == NULL) {
+	    FDBG("Connection destructor, cdata is NULL!\n");
+	}
+	if (cdata && cdata->statements) {
+	    DBG("-> Starting hash search on %s\n", name(cdata->statements));
+	    he = Tcl_FirstHashEntry(cdata->statements, &search);
+	    while (he) {
+		sdata = Tcl_GetHashValue(he);
+		Tcl_DeleteHashEntry(he);
+		he = NULL;
+
+		if (sdata->cdata == NULL) {
+		    sdata->cdata = cdata;
+		    IncrConnectionRefCount(sdata->cdata);
+
+		    /*
+		    * To survive freezing the Tcl_Objs in StatementData are reduced to
+		    * char*s.  Reverse that here.
+		    */
+
+		    ThawTclObj(&sdata->subVars);
+		    ThawTclObj(&sdata->nativeSql);
+		    ThawTclObj(&sdata->columnNames);
+		    DecrStatementRefCount(sdata);
+		    sdata = NULL;
+		}
+
+		/*
+		 * When destroying a connection instance, unlink any
+		 * statements cached in mysqlStatement intreps, since there is
+		 * no way it could be valid in the future anyway, and their
+		 * refs on our cdata would prevent it from being deleted.
+		 */
+
+		if (sdata) {
+		    IncrStatementRefCount(sdata);
+		    RemoveAllStatementRefs(sdata);
+		    DecrStatementRefCount(sdata);
+		    sdata = NULL;
+		}
+
+		he = Tcl_NextHashEntry(&search);
+	    }
+	    DBG("<- Finished hash search on %s\n", name(cdata->statements));
+	}
+    } else if (strcmp(destroytype, "detaching") == 0) {
+    }
+
+    Tcl_ObjectSetMetadata(thisObject, &connectionDataType, NULL);
+    DBG(" <### Connection destructor mode: %s %s, cdata: %s\n", destroytype ? destroytype : "default", name(thisObject), name(cdata));
+    return TCL_OK;
+    
+    /*
+     * chain on to the next destructor.
+     */
+
+    return Tcl_ObjectContextInvokeNext(interp, context, objc, objv,
+				       Tcl_ObjectContextSkippedArgs(context));
 }
 
 /*
@@ -2184,9 +2441,127 @@ ConnectionTablesMethod(
 /*
  *-----------------------------------------------------------------------------
  *
+ * FreezeStatement --
+ *
+ *	- Incref StatementData
+ *	- Destroy the statement instance
+ *	- Add StatementData to cdata->statements hash table
+ *	- Convert the Tcl_Obj*s in StatementData to char*s
+ *
+ * Side effects:
+ *	Effectively transfers the StatementData refcount from the statement
+ *	object to an entry in cdata->statements.
+ *	Destroys the statement object.
+ *	On error an error message is left in interp's result.
+ *
+ * Results:
+ *	Standard Tcl return code, TCL_OK on success.
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+FreezeTclObj(
+    Tcl_Obj** obj
+) {
+    char* tmpStr = NULL;
+    int tmpLen;
+    Tcl_Obj* tmp = NULL;
+
+    if (*obj == NULL) {
+	return;
+    }
+
+    tmp = *obj;
+    *obj = NULL;	/* Transfer ref to tmp */
+
+    tmpStr = Tcl_GetStringFromObj(tmp, &tmpLen);
+    *obj = ckalloc(tmpLen+1);
+    memcpy(*obj, tmpStr, tmpLen+1);
+    Tcl_DecrRefCount(tmp);
+    tmp = NULL;
+}
+
+static int
+DestroyResultset(
+    Tcl_Interp* interp,
+    Tcl_Obj* resultset		/* Instance of resultset class */
+) {
+    int i, res = TCL_OK;
+    Tcl_Obj* cmd[2] = {NULL, NULL};
+
+    /*
+     * Destroy the resultset instance
+     */
+
+    cmd[0] = resultset;
+    cmd[1] = Tcl_NewStringObj("destroy", 7);
+    for (i = 0; i < 2; i++) {
+	Tcl_IncrRefCount(cmd[i]);
+    }
+    res = Tcl_EvalObjv(interp, 2, cmd, 0);
+    for (i = 0; i < 2; i++) {
+	Tcl_DecrRefCount(cmd[i]);
+	cmd[i] = NULL;
+    }
+    if (res != TCL_OK) {
+	return TCL_ERROR;
+    }
+
+    return TCL_OK;
+}
+
+static int
+FreezeStatement(
+    Tcl_Interp* interp,
+    StatementData* sdata	/* Statement to freeze */
+) {
+    /*
+     * Increment StatementData ref count.  Frozen statements have a reference
+     * from their cdata->statements entry (and nothing else).
+     *
+     * Ownership of this reference (currently for our sdata pointer) will be
+     * transferred to the the frozen statements entry.
+     */
+
+    IncrStatementRefCount(sdata);
+
+    /*
+     * Unlink each pgStatement Tcl_Objs' intrep from StatementData
+     */
+
+    RemoveAllStatementRefs(sdata);
+
+    /*
+     * Convert each Tcl_Obj in StatementData to a char* to survive freezing
+     * and future thawing in a different interp / thread
+     */
+
+    FreezeTclObj(&sdata->subVars);
+    FreezeTclObj(&sdata->nativeSql);
+    FreezeTclObj(&sdata->columnNames);
+
+    /* cdata will be in a new location when we thaw */
+
+    DecrConnectionRefCount(sdata->cdata);
+    sdata->cdata = NULL;
+
+    /*
+     * Transfer the ref from our sdata pointer to the frozen statement entry
+     * in the statements hash table.
+     */
+
+    sdata = NULL;
+
+    return TCL_OK;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
  * ConnectionDetachMethod --
  *
- *	Method that detaches the PG connection from this instance
+ *	Method that detaches the MYSQL connection from this instance
  *	(destroying it), saves it in a global hash table of detached
  *	connections
  *
@@ -2204,6 +2579,52 @@ ConnectionTablesMethod(
  */
 
 static int
+FreezeStatementObject(
+    Tcl_Interp* interp,
+    Tcl_Obj* stmt		/* Instance of statement object */
+) {
+    int i, res = TCL_OK;
+    Tcl_Object statementObject = NULL;
+    StatementData* sdata = NULL;
+    Tcl_Obj* cmd[2] = {NULL, NULL};
+
+    statementObject = Tcl_GetObjectFromObj(interp, stmt);
+    if (statementObject == NULL) {
+	return TCL_ERROR;
+    }
+
+    sdata = (StatementData*) Tcl_ObjectGetMetadata(statementObject,
+						   &statementDataType);
+
+    if (sdata == NULL) {
+	Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "Could not retrieve StatementData metadata attached to %s",
+		    Tcl_GetString(stmt)));
+	return TCL_ERROR;
+    }
+
+    DBG("Freezing statement object %s sdata: %s/%s\n", name(stmt), name(sdata->cdata), name(sdata));
+    res = FreezeStatement(interp, sdata);
+
+    /*
+     * Destroy the statement instance
+     */
+
+    cmd[0] = stmt;
+    cmd[1] = Tcl_NewStringObj("destroy", 7);
+    for (i = 0; i < 2; i++) {
+	Tcl_IncrRefCount(cmd[i]);
+    }
+    res = Tcl_EvalObjv(interp, 2, cmd, 0);
+    for (i = 0; i < 2; i++) {
+	Tcl_DecrRefCount(cmd[i]);
+	cmd[i] = NULL;
+    }
+
+    return res;
+}
+
+static int
 ConnectionDetachMethod(
     ClientData clientData,	/* Completion type */
     Tcl_Interp* interp,		/* Tcl interpreter */
@@ -2218,24 +2639,127 @@ ConnectionDetachMethod(
 				/* Instance data */
     Tcl_Command thisObjectCommand = Tcl_GetObjectCommand(thisObject);
     				/* Our object command */
-    int new, res = TCL_OK;
+    Tcl_Obj* statements = NULL;	/* A list from [my statements] */
+    int stmtCount;		/* Length of statements list */
+    Tcl_Obj** stmt = NULL;	/* Array of elements of statements list */
+    Tcl_Obj* resultsets = NULL;	/* A list from [my resultsets] */
+    int resultsetCount;		/* Length of resultsets list */
+    Tcl_Obj** resultset = NULL;	/* Array of elements of resultsets list */
+    Tcl_Obj* cmd[2] = {NULL, NULL};
+    				/* Tcl_Objs to eval for [self] statements */
+    int i, new, res = TCL_OK;
+    Tcl_HashSearch search;	/* Our scan through the statements hash */
     Tcl_HashEntry* he = NULL;
-    char handle[20+sizeof("mysqlhandle")];
-    				/* 20: longest string representation
-				 * of a 64 bit integer. \0 terminator
-				 * accounted for by sizeof
-				 */
+    StatementData* sdata = NULL;
+    				/* A statement in the statements hash */
+    Tcl_Obj* handle = NULL;
 
     /* Check parameters */
 
     if (objc != 2) {
 	Tcl_WrongNumArgs(interp, 2, objv, "");
-	return TCL_ERROR;
+	res = TCL_ERROR;
+	goto finally;
+    }
+
+    DBG(" ***> Detach %s, cdata: %s *** \n", name(thisObject), name(cdata));
+
+    /* Find our associated prepared statements */
+
+    /* TODO: is there a better way to directly call our statements method? */
+    cmd[0] = Tcl_GetObjectName(interp, thisObject);
+    cmd[1] = Tcl_NewStringObj("statements", sizeof("statements")-1);
+    for (i = 0; i < 2; i++) {
+	Tcl_IncrRefCount(cmd[i]);
+    }
+    res = Tcl_EvalObjv(interp, 2, cmd, 0);
+    for (i = 0; i < 2; i++) {
+	Tcl_DecrRefCount(cmd[i]);
+	cmd[i] = NULL;
+    }
+    if (res != TCL_OK) {
+	goto finally;
+    }
+    Tcl_IncrRefCount(statements = Tcl_GetObjResult(interp));
+    res = Tcl_ListObjGetElements(interp, statements, &stmtCount, &stmt);
+    if (res != TCL_OK) {
+	goto finally;
+    }
+
+    /* Find our associated resultsets, and destroy them */
+
+    cmd[0] = Tcl_GetObjectName(interp, thisObject);
+    cmd[1] = Tcl_NewStringObj("resultsets", sizeof("resultsets")-1);
+    for (i = 0; i < 2; i++) {
+	Tcl_IncrRefCount(cmd[i]);
+    }
+    res = Tcl_EvalObjv(interp, 2, cmd, 0);
+    for (i = 0; i < 2; i++) {
+	Tcl_DecrRefCount(cmd[i]);
+	cmd[i] = NULL;
+    }
+    if (res != TCL_OK) {
+	goto finally;
+    }
+    Tcl_IncrRefCount(resultsets = Tcl_GetObjResult(interp));
+    res = Tcl_ListObjGetElements(interp, resultsets, &resultsetCount, &resultset);
+    if (res != TCL_OK) {
+	goto finally;
+    }
+
+    for (i = 0; i < resultsetCount; i++) {
+	res = DestroyResultset(interp, resultset[i]);
+	if (res != TCL_OK) {
+	    goto finally;
+	}
     }
 
     /*
-     *	- ensure cdata isn't shared (trying to detach while result sets,
-     *		statements, etc still refer to the connection)
+     * Freeze each explicitly prepared statement:
+     *	- Incref StatementData
+     *	- Destroy the statement instance
+     *	- Convert the Tcl_Obj*s in StatementData to char*s
+     */
+
+    for (i = 0; i < stmtCount; i++) {
+	res = FreezeStatementObject(interp, stmt[i]);
+	if (res != TCL_OK) {
+	    goto finally;
+	}
+    }
+
+    /*
+     * Freeze each prepared statement cached in a mysqlStatement ObjType intrep
+     */
+
+    DBG("-> Starting hash search on %s\n", name(cdata->statements));
+    he = Tcl_FirstHashEntry(cdata->statements, &search);
+    while (he) {
+	sdata = Tcl_GetHashValue(he);
+
+	/*
+	 * If sdata->cdata is NULL, this entry is already frozen by the
+	 * code above, or remains from a previous incarnation.
+	 */
+
+	if (sdata->cdata) {
+	    DBG("Freezing sdata cached in mysqlStatement Tcl_Obj: %s\n", name(sdata));
+	    res = FreezeStatement(interp, sdata);
+	    if (res != TCL_OK) {
+		goto finally;
+	    }
+	} else {
+	    DBG("Skipping already frozen statement: %s\n", name(sdata));
+	}
+	he = Tcl_NextHashEntry(&search);
+    }
+    DBG("<- Finished hash search on %s\n", name(cdata->statements));
+
+    /*
+     *	- ensure cdata isn't shared - all refs other than our instance metadata
+     *		should have been removed now.  If others remain it means that
+     *		there is a bug in this code somewhere.
+     *	- freeze each statement associated with this connection
      *	- with a mutex held: {
      *	    - Create a new(!) hash entry
      *	    - Decref our pidata and clear it from cdata
@@ -2246,45 +2770,89 @@ ConnectionDetachMethod(
      */
 
     if (cdata->refCount > 1) {
-
-	/* TODO: possibly kill these proactively?  */
-
-	Tcl_SetObjResult(interp, Tcl_ObjPrintf("Can't detach while statements and result sets are still open"));
-	return TCL_ERROR;
+	Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "Could not detach connection because references remain: %ld",
+		    cdata->refCount));
+	//raise(SIGTRAP);
+	res = TCL_ERROR;
+	goto finally;
     }
 
     Tcl_MutexLock(&DetachedConnectionsMutex);
-    snprintf(handle, 20+sizeof("mysqlhandle"), "mysqlhandle%d", ++DetachedConnectionsSeq);
-    he = Tcl_CreateHashEntry(&DetachedConnections, handle, &new);
+    handle = Tcl_ObjPrintf("mysqlhandle%d", ++DetachedConnectionsSeq);
+    Tcl_IncrRefCount(handle);
+    he = Tcl_CreateHashEntry(&DetachedConnections, Tcl_GetString(handle), &new);
     if (new) {
 	DecrPerInterpRefCount(cdata->pidata);
 	cdata->pidata = NULL;
 	IncrConnectionRefCount(cdata);
 	Tcl_SetHashValue(he, cdata);
     } else {
-	Tcl_SetObjResult(interp, Tcl_ObjPrintf("Generated a handle but it wasn't new: \"%s\"", handle));
+	Tcl_SetObjResult(interp, Tcl_ObjPrintf(
+		    "Generated a handle but it wasn't new: \"%s\"",
+		    Tcl_GetString(handle)));
 	res = TCL_ERROR;
     }
     Tcl_MutexUnlock(&DetachedConnectionsMutex);
     if (res != TCL_OK) {
-	return res;
+	goto finally;
     }
 
-    /* Delete our object command for the side-effect of destroying this object
+
+    /*
+     * For reasons I haven't figured out yet, sometimes the
+     * Tcl_DeleteCommandFromToken below directly runs the destructor, and
+     * sometimes it just seems to delete name namespace, detach the metadata
+     * and return to us, and then our destructor runs after we return (now sans
+     * metadata).  So we attach the connectionDestroyType twice: once before
+     * the Tcl_DeleteCommandFromToken and again after it, so that whenever
+     * our destructor runs it knows not to clean out cdata->statements.
+     */
+
+    Tcl_ObjectSetMetadata(thisObject, &connectionDestroyType, "detaching");
+
+    /*
+     * Delete our object command for the side-effect of destroying this object
      * TODO: is there a more direct way to do this?
      */
 
+    DBG("cdata before delete command: %s\n", name(Tcl_ObjectGetMetadata(thisObject, &connectionDataType)));
     if (Tcl_DeleteCommandFromToken(interp, thisObjectCommand) != TCL_OK) {
 
 	/* TODO: Tcl_Panic rather?  Things are in an inconsistent state */
 
 	Tcl_SetObjResult(interp, Tcl_NewStringObj("Attempt to destroy this connection object after detaching failed", -1));
-	return TCL_ERROR;
+	res = TCL_ERROR;
+	goto finally;
+    }
+    DBG("cdata after delete command: %s\n", name(Tcl_ObjectGetMetadata(thisObject, &connectionDataType)));
+
+    /*
+     * Flag this object as being in a detach state, so that the destructor
+     * knows not to DecrRef the statements hash table entries.
+     */
+
+    Tcl_ObjectSetMetadata(thisObject, &connectionDestroyType, "detaching");
+
+    DBG("Detach successful, returning handle (%s)\n", Tcl_GetString(handle));
+    Tcl_SetObjResult(interp, handle);
+
+ finally:
+    if (statements) {
+	Tcl_DecrRefCount(statements);
+	statements = NULL;
+    }
+    if (resultsets) {
+	Tcl_DecrRefCount(resultsets);
+	resultsets = NULL;
+    }
+    if (handle) {
+	Tcl_DecrRefCount(handle);
+	handle = NULL;
     }
 
-    Tcl_SetObjResult(interp, Tcl_NewStringObj(handle, -1));
-
-    return TCL_OK;
+    DBG(" <*** Detach %s, cdata: %s *** \n", name(thisObject), name(cdata));
+    return res;
 }
 
 /*
@@ -2328,9 +2896,80 @@ ConnectionConnectedMethod(
 	return TCL_ERROR;
     }
 
-    connected = (mysql_ping(cdata->mysqlPtr) == 0);
+    connected = cdata->mysqlPtr && (mysql_ping(cdata->mysqlPtr) == 0);
 
     Tcl_SetObjResult(interp, cdata->pidata->literals[connected ? LIT_1 : LIT_0]);
+
+    return TCL_OK;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * ConnectionStatementInfoMethod --
+ *
+ *	Returns a string describing the contents of the cdata->statements
+ *	cache
+ *
+ * Usage:
+ * 	$connection statementinfo
+ *
+ * Parameters:
+ *	None.
+ *
+ * Results:
+ *	String describing the statements cache
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static int
+ConnectionStatementInfoMethod(
+    ClientData clientData,	/* Completion type */
+    Tcl_Interp* interp,		/* Tcl interpreter */
+    Tcl_ObjectContext objectContext, /* Object context */
+    int objc,			/* Parameter count */
+    Tcl_Obj *const objv[]	/* Parameter vector */
+) {
+    Tcl_Object thisObject = Tcl_ObjectContextObject(objectContext);
+				/* The current connection object */
+    ConnectionData* cdata = (ConnectionData*)
+	Tcl_ObjectGetMetadata(thisObject, &connectionDataType);
+				/* Instance data */
+    Tcl_HashEntry*	he = NULL;
+    Tcl_HashSearch	search;
+    StatementData*	sdata = NULL;
+    Tcl_Obj*		retVal = NULL;
+
+    /* Check parameters */
+
+    if (objc != 2) {
+	Tcl_WrongNumArgs(interp, 2, objv, "");
+	return TCL_ERROR;
+    }
+
+    retVal = Tcl_ObjPrintf("Statements hash, untilAge: %d", cdata->untilAge);
+    Tcl_IncrRefCount(retVal);
+
+    he = Tcl_FirstHashEntry(cdata->statements, &search);
+    while (he) {
+	sdata = Tcl_GetHashValue(he);
+
+	Tcl_AppendPrintfToObj(retVal, "\n\t-%s- refCount %ld, heat: %d, %s",
+		sdata->cdata ? "live" : "frozen",
+		sdata->refCount,
+		sdata->heat,
+		sdata->origSql);
+
+	he = Tcl_NextHashEntry(&search);
+    }
+
+    Tcl_SetObjResult(interp, retVal);
+
+    if (retVal) {
+	Tcl_DecrRefCount(retVal);
+	retVal = NULL;
+    }
 
     return TCL_OK;
 }
@@ -2413,14 +3052,78 @@ static void
 DeleteConnection(
     ConnectionData* cdata	/* Instance data for the connection */
 ) {
+    Tcl_HashSearch	search;
+    Tcl_HashEntry*	he = NULL;
+
+    FDBG("===> Enter DeleteConnection %s\n", name(cdata));
+    if (cdata->statements) {
+	he = Tcl_FirstHashEntry(cdata->statements, &search);
+	if (he) {
+	    StatementData*	sdata = NULL;
+	    int			stillRemain = 0;
+
+	    do {
+		sdata = Tcl_GetHashValue(he);
+		if (sdata->cdata == NULL) {
+		    /*
+		     * A frozen statement, just free it.  Can arrive here if
+		     * the last mysqlStatement literal is deleted during
+		     * interpreter exit, causing the cdata refcount to go to 0.
+		     * Destructor should be run but isn't, so we're left with
+		     * frozen statements in cdata->statements.
+		     */
+
+		    /*
+		     * These are frozen (char* rather than Tcl_Obj*), so
+		     * free them directly to prevent DeleteStatement from
+		     * trying to DecrRefing them
+		     */
+		    if (sdata->subVars) {
+			ckfree(sdata->subVars);
+			sdata->subVars = NULL;
+		    }
+		    if (sdata->nativeSql) {
+			ckfree(sdata->nativeSql);
+			sdata->nativeSql = NULL;
+		    }
+		    if (sdata->columnNames) {
+			ckfree(sdata->columnNames);
+			sdata->columnNames = NULL;
+		    }
+
+		    DeleteStatement(sdata);
+		    sdata = NULL;
+		    Tcl_DeleteHashEntry(he);
+		    he = NULL;
+		} else {
+		    stillRemain++;
+		}
+	    } while((he = Tcl_NextHashEntry(&search)));
+
+	    if (stillRemain > 0) {
+		Tcl_Panic("No entries should remain in cdata->statements");
+	    }
+	}
+
+	DBG("DeleteHashTable %s ->statements %s\n", name(cdata), name(cdata->statements));
+	Tcl_DeleteHashTable(cdata->statements);
+	ckfree(cdata->statements);
+	cdata->statements = NULL;
+    }
+
     if (cdata->collationSizes != NULL) {
 	ckfree((char*) cdata->collationSizes);
     }
     if (cdata->mysqlPtr != NULL) {
+	/* mysqlPtr can be NULL if the constructor failed before connecting */
 	mysql_close(cdata->mysqlPtr);
+	cdata->mysqlPtr = NULL;
     }
     DecrPerInterpRefCount(cdata->pidata);
+    cdata->pidata = NULL;
     ckfree((char*) cdata);
+    FDBG("Deleted connection %s, remaining connections: %d\n", name(cdata), --g_connections);
+    FDBG("<=== Leave DeleteConnection %s\n", name(cdata));
 }
 
 /*
@@ -2456,6 +3159,159 @@ CloneConnection(
 /*
  *-----------------------------------------------------------------------------
  *
+ * AttemptExpireStatement --
+ *
+ *	Attempt to expire the statement from the cache.  Will be expired
+ *	if frozen or the only refs are the intreps of mysqlStatement values.
+ *
+ * Results:
+ *	1 if statement was expired
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static int
+AttemptExpireStatement(
+    StatementData* sdata,
+    Tcl_HashEntry** he
+) {
+    int				removed = 0;
+    struct mysqlStatementRef*	p = NULL;
+    int				refs;
+
+    if (sdata->cdata == NULL) {
+	/* Frozen, therefore no refs other than the hash entry */
+	if (sdata->origSql) {
+	    fprintf(stderr, "Evicting cold statement from the cdata->statements cache: %s\n", sdata->origSql);
+	    /* Prevent DeleteStatement from looking up this hashentry */
+	    ckfree(sdata->origSql);
+	    sdata->origSql = NULL;
+	}
+
+	/*
+	    * These are frozen (char* rather than Tcl_Obj*), so
+	    * free them directly to prevent DeleteStatement from
+	    * trying to DecrRefing them
+	    */
+	if (sdata->subVars) {
+	    ckfree(sdata->subVars);
+	    sdata->subVars = NULL;
+	}
+	if (sdata->nativeSql) {
+	    ckfree(sdata->nativeSql);
+	    sdata->nativeSql = NULL;
+	}
+	if (sdata->columnNames) {
+	    ckfree(sdata->columnNames);
+	    sdata->columnNames = NULL;
+	}
+
+	Tcl_DeleteHashEntry(*he);
+	*he = NULL;
+	DeleteStatement(sdata);
+	sdata = NULL;
+	removed = 1;
+    } else {
+	/* Run through the mysqlStatements to see if they account
+	    * for all the refs */
+	p = sdata->mysqlStatements;
+	refs = sdata->refCount;
+	while (p) {
+	    refs--;
+	    p = p->next;
+	}
+	if (refs <= 0) {
+	    /*
+		* Only mysqlStatement intreps hold refs, sever them
+		* (freeing the statement when the last is removed)
+		*/
+	    fprintf(stderr, "Evicting cold statement from the cdata->statements cache: %s\n", sdata->origSql);
+	    Tcl_DeleteHashEntry(*he);
+	    *he = NULL;
+	    RemoveAllStatementRefs(sdata);
+	    sdata = NULL;
+	    removed = 1;
+	}
+    }
+
+    return removed;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * AgeStatementCache --
+ *
+ *	Reduces the heat of all the statements in cdata->statements and
+ *	frees those that fall to 0 and have no explicit prepared statement
+ *	objects.
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+AgeStatementCache(
+    ConnectionData* cdata	/* Instance data for the connection */
+) {
+    Tcl_HashSearch		search;
+    Tcl_HashEntry*		he = NULL;
+    StatementData*		sdata = NULL;
+    int				statementCount=0, removed;
+
+    TIME("AgeStatementCache, count statements",
+    he = Tcl_FirstHashEntry(cdata->statements, &search);
+    while (he) {
+	sdata = Tcl_GetHashValue(he);
+	if (sdata) {
+	    removed = 0;
+	    if (sdata->heat == 1) {
+		removed = AttemptExpireStatement(sdata, &he);
+	    }
+	    if (!removed) {
+		statementCount++;
+	    }
+	}
+	he = Tcl_NextHashEntry(&search);
+    }
+    );
+    DBG("Found %d statements\n", statementCount);
+
+    if (statementCount > 64) {
+	he = Tcl_FirstHashEntry(cdata->statements, &search);
+	while (he) {
+	    sdata = Tcl_GetHashValue(he);
+	    if (sdata == NULL) {
+		he = Tcl_NextHashEntry(&search);
+		continue;
+	    }
+
+	    DBG("sdata->heat %d %s\n", sdata->heat, sdata->origSql);
+	    if (sdata->heat > 0) {
+		sdata->heat >>= 1;
+		DBG("\tCooled %d\n", sdata->heat);
+	    }
+
+	    if (sdata->heat == 0) {
+		/*
+		* Candidate for expiring, check if there are references other
+		* than mysqlStatement intreps.
+		*/
+		statementCount -= AttemptExpireStatement(sdata, &he);
+	    }
+
+	    he = Tcl_NextHashEntry(&search);
+	}
+    }
+
+    cdata->untilAge = 100-statementCount;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
  * NewStatement --
  *
  *	Creates an empty object to hold statement data.
@@ -2473,15 +3329,25 @@ NewStatement(
     StatementData* sdata = (StatementData*) ckalloc(sizeof(StatementData));
     sdata->refCount = 1;
     sdata->cdata = cdata;
-    IncrConnectionRefCount(cdata);
+    DBG("Taking a ref on cdata %s for sdata %s, statements existing: %d\n", name(cdata), name(sdata), ++g_statements);
+    IncrConnectionRefCount(sdata->cdata);
     sdata->subVars = Tcl_NewObj();
     Tcl_IncrRefCount(sdata->subVars);
     sdata->params = NULL;
+    sdata->origSql = NULL;
     sdata->nativeSql = NULL;
     sdata->stmtPtr = NULL;
     sdata->metadataPtr = NULL;
     sdata->columnNames = NULL;
     sdata->flags = 0;
+    sdata->mysqlStatements = NULL;
+    sdata->heat = 0;
+
+    cdata->untilAge--;
+    if (cdata->untilAge < 0) {	/* 100 - not tuned yet */
+	AgeStatementCache(cdata);
+    }
+
     return sdata;
 }
 
@@ -2513,6 +3379,7 @@ AllocAndPrepareStatement(
     MYSQL_STMT* stmtPtr;	/* Statement handle */
     const char* nativeSqlStr;	/* Native SQL statement to prepare */
     int nativeSqlLen;		/* Length of the statement */
+    int first = 1;
 
     /* Allocate space for the prepared statement */
 
@@ -2530,11 +3397,24 @@ AllocAndPrepareStatement(
 	/* Prepare the statement */
 
 	nativeSqlStr = Tcl_GetStringFromObj(sdata->nativeSql, &nativeSqlLen);
-	if (mysql_stmt_prepare(stmtPtr, nativeSqlStr, nativeSqlLen)) {
-	    TransferMysqlStmtError(interp, stmtPtr);
-	    mysql_stmt_close(stmtPtr);
-	    stmtPtr = NULL;
-	}
+	do {
+	    if (mysql_stmt_prepare(stmtPtr, nativeSqlStr, nativeSqlLen)) {
+		if (first && mysql_stmt_errno(stmtPtr) == 1461) {
+		    /*
+		     * Hit max_prepared_stmt_count limit, attempt to age the
+		     * cache (hopefully expiring some statements), and try
+		     * again
+		     */
+		    first = 0;
+		    AgeStatementCache(cdata);
+		    continue;
+		}
+		TransferMysqlStmtError(interp, stmtPtr);
+		mysql_stmt_close(stmtPtr);
+		stmtPtr = NULL;
+	    }
+	    break;
+	} while(1);
     }
     return stmtPtr;
 }
@@ -2642,14 +3522,6 @@ StatementConstructor(
 				/* The database connection as a Tcl_Object */
     ConnectionData* cdata;	/* The connection object's data */
     StatementData* sdata;	/* The statement's object data */
-    Tcl_Obj* tokens;		/* The tokens of the statement to be prepared */
-    int tokenc;			/* Length of the 'tokens' list */
-    Tcl_Obj** tokenv;		/* Exploded tokens from the list */
-    Tcl_Obj* nativeSql;		/* SQL statement mapped to native form */
-    char* tokenStr;		/* Token string */
-    int tokenLen;		/* Length of a token */
-    int nParams;		/* Number of parameters of the statement */
-    int i;
 
     /* Find the connection object, and get its data. */
 
@@ -2672,98 +3544,22 @@ StatementConstructor(
     }
 
     /*
-     * Allocate an object to hold data about this statement
+     * All the work is done by the GetMysqlStatementFromObj, which will
+     * cache the StatementData in objv[skip+1] for future calls
      */
 
-    sdata = NewStatement(cdata);
-
-    /* Tokenize the statement */
-
-    tokens = Tdbc_TokenizeSql(interp, Tcl_GetString(objv[skip+1]));
-    if (tokens == NULL) {
-	goto freeSData;
+    TIME("GetMysqlStatementFromObj",
+    if (GetMysqlStatementFromObj(interp, objv[skip+1], cdata, &sdata) != TCL_OK) {
+	return TCL_ERROR;
     }
-    Tcl_IncrRefCount(tokens);
-
-    /*
-     * Rewrite the tokenized statement to MySQL syntax. Reject the
-     * statement if it is actually multiple statements.
-     */
-
-    if (Tcl_ListObjGetElements(interp, tokens, &tokenc, &tokenv) != TCL_OK) {
-	goto freeTokens;
-    }
-    nativeSql = Tcl_NewObj();
-    Tcl_IncrRefCount(nativeSql);
-    for (i = 0; i < tokenc; ++i) {
-	tokenStr = Tcl_GetStringFromObj(tokenv[i], &tokenLen);
-
-	switch (tokenStr[0]) {
-	case '$':
-	case ':':
-	case '@':
-	    Tcl_AppendToObj(nativeSql, "?", 1);
-	    Tcl_ListObjAppendElement(NULL, sdata->subVars,
-				     Tcl_NewStringObj(tokenStr+1, tokenLen-1));
-	    break;
-
-	case ';':
-	    Tcl_SetObjResult(interp,
-			     Tcl_NewStringObj("tdbc::mysql"
-					      " does not support semicolons "
-					      "in statements", -1));
-	    goto freeNativeSql;
-	    break;
-
-	default:
-	    Tcl_AppendToObj(nativeSql, tokenStr, tokenLen);
-	    break;
-
-	}
-    }
-    sdata->nativeSql = nativeSql;
-    Tcl_DecrRefCount(tokens);
-
-    /* Prepare the statement */
-
-    sdata->stmtPtr = AllocAndPrepareStatement(interp, sdata);
-    if (sdata->stmtPtr == NULL) {
-	goto freeSData;
-    }
-
-    /* Get result set metadata */
-
-    sdata->metadataPtr = mysql_stmt_result_metadata(sdata->stmtPtr);
-    if (mysql_stmt_errno(sdata->stmtPtr)) {
-	TransferMysqlStmtError(interp, sdata->stmtPtr);
-	goto freeSData;
-    }
-    sdata->columnNames = ResultDescToTcl(sdata->metadataPtr, 0);
-    Tcl_IncrRefCount(sdata->columnNames);
-
-    Tcl_ListObjLength(NULL, sdata->subVars, &nParams);
-    sdata->params = (ParamData*) ckalloc(nParams * sizeof(ParamData));
-    for (i = 0; i < nParams; ++i) {
-	sdata->params[i].flags = PARAM_IN;
-	sdata->params[i].dataType = MYSQL_TYPE_VARCHAR;
-	sdata->params[i].precision = 0;
-	sdata->params[i].scale = 0;
-    }
+    );
 
     /* Attach the current statement data as metadata to the current object */
 
+    IncrStatementRefCount(sdata);
     Tcl_ObjectSetMetadata(thisObject, &statementDataType, (ClientData) sdata);
+
     return TCL_OK;
-
-    /* On error, unwind all the resource allocations */
-
- freeNativeSql:
-    Tcl_DecrRefCount(nativeSql);
- freeTokens:
-    Tcl_DecrRefCount(tokens);
- freeSData:
-    DecrStatementRefCount(sdata);
-    return TCL_ERROR;
 }
 
 /*
@@ -3015,6 +3811,9 @@ static void
 DeleteStatement(
     StatementData* sdata	/* Metadata for the statement */
 ) {
+    Tcl_HashEntry* he = NULL;
+
+    DBG("  ==> DeleteStatement %s\n", name(sdata));
     if (sdata->columnNames != NULL) {
 	Tcl_DecrRefCount(sdata->columnNames);
     }
@@ -3027,12 +3826,48 @@ DeleteStatement(
     if (sdata->nativeSql != NULL) {
 	Tcl_DecrRefCount(sdata->nativeSql);
     }
+    if (sdata->origSql != NULL) {
+	/*
+	 * Non-frozen entries in the statements hash table don't hold
+	 * references to sdata, so when the refcount goes to zero
+	 * we remove the entry from the hash.  This way the the
+	 * statements hash contains only the currently referenced
+	 * statements (as metadata for statement objects, or intrep
+	 * for mysqlStatement ObjTypes), or frozen statements from
+	 * previous incarnations.
+	 *
+	 * If we're here and sdata->cdata is NULL it means that the
+	 * connection is being explicitly destroyed and the connection
+	 * destructor will take care of removing the hash entries itself.
+	 */
+	if (sdata->cdata) {
+	    he = Tcl_FindHashEntry(sdata->cdata->statements, sdata->origSql);
+	    if (he) {
+		Tcl_DeleteHashEntry(he);
+	    }
+	}
+	ckfree(sdata->origSql);
+	sdata->origSql = NULL;
+    }
     if (sdata->params != NULL) {
 	ckfree((char*)sdata->params);
     }
-    Tcl_DecrRefCount(sdata->subVars);
-    DecrConnectionRefCount(sdata->cdata);
+    if (sdata->subVars != NULL) {
+	Tcl_DecrRefCount(sdata->subVars);
+	sdata->subVars = NULL;
+    }
+    if (sdata->cdata) {
+	/*
+	 * sdata->cdata == NULL means this statement is frozen, and doesn't
+	 * hold a reference to cdata (which will have moved location when
+	 * we're thawed anyway).  The dependency on cdata->mysqlPtr for prepared
+	 * statements is implicit in that the only way to reach a frozen
+	 * statement is via the correct cdata's statements hash table.
+	 */
+	DecrConnectionRefCount(sdata->cdata);
+    }
     ckfree((char*)sdata);
+    DBG("  <== DeleteStatement %s, statements remaining: %d\n", name(sdata), --g_statements);
 }
 
 /*
@@ -3062,6 +3897,462 @@ CloneStatement(
 ) {
     Tcl_SetObjResult(interp,
 		     Tcl_NewStringObj("MySQL statements are not clonable", -1));
+    return TCL_ERROR;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * AddStatementRef --
+ *
+ *	Adds obj as a reference to sdata in the mysqlStatement linked list,
+ *	and increments the StatementData ref count
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+AddStatementRef(
+    Tcl_Obj* obj,
+    StatementData* sdata
+) {
+    struct mysqlStatementRef* myRef = ckalloc(sizeof(struct mysqlStatementRef));
+
+    myRef->obj = obj;
+    DBG("Adding obj statement ref: %s to %s/%s: \"%s\"\n", name(obj), name(sdata->cdata), name(sdata), Tcl_GetString(obj));
+    DUMP_LIST(sdata);
+    myRef->next = sdata->mysqlStatements;
+    sdata->mysqlStatements = myRef;
+    IncrStatementRefCount(sdata);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * RemoveStatementRef --
+ *
+ *	Removes obj as a reference to sdata from the mysqlStatements linked
+ *	list, and decrements the StatementData ref count (if a ref to obj was
+ *	found).
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+RemoveStatementRef(
+    Tcl_Obj* obj,
+    StatementData* sdata
+) {
+    struct mysqlStatementRef* p = sdata->mysqlStatements;
+    struct mysqlStatementRef* t = NULL;
+
+    DBG("RemoveStatementRef %s from %s/%s\n", name(obj), name(sdata->cdata), name(sdata));
+    DUMP_LIST(sdata);
+
+    if (p == NULL) return;
+
+    if (p->obj == obj) {
+	sdata->mysqlStatements = p->next;
+	ckfree(p);
+	p = NULL;
+	DecrStatementRefCount(sdata);
+	return;
+    }
+
+    while (p->next && p->next->obj != obj) {
+	p = p->next;
+    }
+
+    if (p->next == NULL) {
+	return;
+    }
+
+    t = p->next;
+    p->next = p->next->next;
+    ckfree(t);
+    t = NULL;
+    DecrStatementRefCount(sdata);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * RemoveAllStatementRefs --
+ *
+ *	Removes all mysqlStatement Intrep refs from sdata, invalidating the
+ *	referring objects' intreps and decrementing the StatementData for
+ *	each removed reference.
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+RemoveAllStatementRefs(
+    StatementData* sdata
+) {
+    struct mysqlStatementRef* p = sdata->mysqlStatements;
+    struct mysqlStatementRef* n = NULL;
+    Tcl_ObjIntRep* ir = NULL;
+
+    DUMP_LIST(sdata);
+    sdata->mysqlStatements = NULL;
+
+    while (p) {
+	ir = Tcl_FetchIntRep(p->obj, &mysqlStatementType);
+	if (ir) {
+	    if (ir->twoPtrValue.ptr1) {
+		DBG("\t  Unlinking mysqlStatement Tcl_Obj %s from %s/%s\n", name(p->obj), name(sdata->cdata), name(sdata));
+		DecrStatementRefCount((StatementData*) ir->twoPtrValue.ptr1);
+		ir->twoPtrValue.ptr1 = NULL;
+	    }
+	    ir->twoPtrValue.ptr2 = NULL;
+	}
+	
+	n = p->next;
+	p->obj = NULL;
+	p->next = NULL;
+	ckfree(p);
+	p = n;
+    }
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * FreeStatement --
+ *
+ *	Frees a mysqlStatement ObjType intrep
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+FreeStatement(
+    Tcl_Obj* obj
+) {
+    Tcl_ObjIntRep* ir = Tcl_FetchIntRep(obj, &mysqlStatementType);
+    StatementData* sdata = ir->twoPtrValue.ptr1;
+
+    DBG("FreeIntRep on mysqlStatement %s\n", name(obj));
+    if (ir->twoPtrValue.ptr1) {
+	/*
+	 * May be NULL already if the StatementData was unlinked from this
+	 * intrep when the associated connection was frozen.
+	 */
+	RemoveStatementRef(obj, sdata);
+    }
+    ir->twoPtrValue.ptr1 = NULL;
+    ir->twoPtrValue.ptr2 = NULL;
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * DupStatement --
+ *
+ *	Duplicates a mysqlStatement ObjType intrep
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+DupStatement(
+    Tcl_Obj* src,
+    Tcl_Obj* dup
+) {
+    Tcl_ObjIntRep* ir = Tcl_FetchIntRep(src, &mysqlStatementType);
+    StatementData* sdata = ir->twoPtrValue.ptr1;
+
+    DBG("DupStatement %s -> %s\n", name(src), name(dup));
+    AddStatementRef(dup, sdata);
+    Tcl_StoreIntRep(dup, &mysqlStatementType, ir);
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * UpdateStringOfStatement --
+ *
+ *	Duplicates a mysqlStatement ObjType intrep
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+UpdateStringOfStatement(
+    Tcl_Obj* obj
+) {
+    Tcl_ObjIntRep* ir = Tcl_FetchIntRep(obj, &mysqlStatementType);
+    StatementData* sdata = ir->twoPtrValue.ptr1;
+
+    Tcl_InitStringRep(obj, sdata->origSql, strlen(sdata->origSql));
+}
+
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * GetmysqlStatementFromObj --
+ *
+ *	Duplicates a mysqlStatement ObjType intrep
+ *
+ * Results:
+ *	None
+ *
+ *-----------------------------------------------------------------------------
+ */
+
+static void
+ThawTclObj(
+    Tcl_Obj** obj
+) {
+    char* frozenStr = NULL;	/* Frozen string while replacing with Tcl_Obj */
+
+    if (*obj == NULL) {
+	return;
+    }
+
+    frozenStr = (char*)*obj;
+    *obj = Tcl_NewStringObj(frozenStr, -1);
+    Tcl_IncrRefCount(*obj);
+    ckfree(frozenStr);
+    frozenStr = NULL;
+}
+
+static int
+GetMysqlStatementFromObj(
+    Tcl_Interp* interp,
+    Tcl_Obj* obj,
+    ConnectionData* cdata,
+    StatementData** sdataOut
+) {
+    Tcl_ObjIntRep* ir = Tcl_FetchIntRep(obj, &mysqlStatementType);
+    Tcl_ObjIntRep newIr;
+    StatementData* sdata = NULL;
+    Tcl_Obj* tokens = NULL;	/* The tokens of the statement to be prepared */
+    int tokenc;			/* Length of the 'tokens' list */
+    Tcl_Obj** tokenv;		/* Exploded tokens from the list */
+    Tcl_Obj* nativeSql = NULL;	/* SQL statement mapped to native form */
+    Tcl_Obj* subVars = NULL;	/* Substition variables, in order */
+    char* tokenStr;		/* Token string */
+    int tokenLen;		/* Length of a token */
+    int nParams;		/* Number of parameters of the statement */
+    Tcl_HashEntry* he = NULL;	/* Frozen prepared statement */
+    int i, new;
+    const char* origSql = NULL;
+    int origSqlLen;
+
+    DBG("GetMysqlStatementFromObj %s \"%s\"\n", name(obj), Tcl_GetString(obj));
+    /*
+     * Cached StatementData is only valid if the mysqlPtr matches the connection
+     * we used to prepare.  If ptr1 is NULL then the StatementData was unlinked
+     * from under us and we need to regenerate it.
+     */
+    if (ir && ir->twoPtrValue.ptr1 && ir->twoPtrValue.ptr2 == cdata->mysqlPtr) {
+	*sdataOut = ir->twoPtrValue.ptr1;
+	return TCL_OK;
+    }
+
+    /*
+     * Not a mysqlStatementType, or not valid for this ConnectionData:
+     * attempt to convert it to one.
+     *
+     * Look for a frozen (previously detached) prepared statement.
+     */
+
+    he = Tcl_CreateHashEntry(cdata->statements, Tcl_GetString(obj), &new);
+    if (!new) {
+	sdata = Tcl_GetHashValue(he);
+	DBG("\tRetrieved StatementData from statements hash: %s\n", name(sdata));
+	IncrStatementRefCount(sdata);	/* For sdata pointer */
+
+	if (sdata->cdata == NULL) {
+	    DBG("\t\tWas frozen, thawing\n");
+	    /* cdata == NULL means this statement was frozen, thaw it */
+
+	    sdata->cdata = cdata;
+	    IncrConnectionRefCount(sdata->cdata);
+
+	    /*
+	     * To survive freezing the Tcl_Objs in StatementData are reduced to
+	     * char*s.  Reverse that here.
+	     */
+
+	    ThawTclObj(&sdata->subVars);
+	    ThawTclObj(&sdata->nativeSql);
+	    ThawTclObj(&sdata->columnNames);
+
+	    /* Frozen entries in the hash have their own references
+	     * (nothing else references them).  Thawed ones don't,
+	     * remove the cdata->statements ref now that we've thawed
+	     * this one.
+	     */
+	    DecrStatementRefCount(sdata);
+	}
+    } else {
+	DBG("query not found in cdata->statements: %s, existing statements:\n", Tcl_GetString(obj));
+	DUMP_STATEMENTS(cdata);
+
+	/* Tokenize the statement */
+
+	tokens = Tdbc_TokenizeSql(interp, Tcl_GetString(obj));
+	if (tokens == NULL) {
+	    goto err;
+	}
+	Tcl_IncrRefCount(tokens);
+
+	/*
+	* Rewrite the tokenized statement to MySQL syntax. Reject the
+	* statement if it is actually multiple statements.
+	*/
+
+	if (Tcl_ListObjGetElements(interp, tokens, &tokenc, &tokenv) != TCL_OK) {
+	    goto err;
+	}
+
+	Tcl_IncrRefCount(subVars = Tcl_NewListObj(0, NULL));
+	nativeSql = Tcl_NewObj();
+	Tcl_IncrRefCount(nativeSql);
+	for (i = 0; i < tokenc; ++i) {
+	    tokenStr = Tcl_GetStringFromObj(tokenv[i], &tokenLen);
+
+	    switch (tokenStr[0]) {
+	    case '$':
+	    case ':':
+	    case '@':
+		Tcl_AppendToObj(nativeSql, "?", 1);
+		Tcl_ListObjAppendElement(NULL, subVars,
+					Tcl_NewStringObj(tokenStr+1, tokenLen-1));
+		break;
+
+	    case ';':
+		Tcl_SetObjResult(interp,
+				Tcl_NewStringObj("tdbc::mysql"
+						" does not support semicolons "
+						"in statements", -1));
+		goto err;
+		break;
+
+	    default:
+		Tcl_AppendToObj(nativeSql, tokenStr, tokenLen);
+		break;
+
+	    }
+	}
+
+	Tcl_DecrRefCount(tokens);
+	tokens = NULL;
+
+	/*
+	 * Allocate an object to hold data about this statement
+	 */
+
+	sdata = NewStatement(cdata);
+	DBG("\nCreated fresh StatementData: %s\n", name(sdata));
+
+	/*
+	 * Can't point origSql to obj - it would be a circular reference (obj
+	 * referenced in obj's intrep), so it would never be freed
+	 */
+	origSql = Tcl_GetStringFromObj(obj, &origSqlLen);
+	sdata->origSql = ckalloc(origSqlLen+1);
+	memcpy(sdata->origSql, origSql, origSqlLen+1);
+
+	sdata->nativeSql = nativeSql;
+	nativeSql = NULL;
+	sdata->subVars = subVars;
+	subVars = NULL;
+
+	/* Prepare the statement */
+
+	sdata->stmtPtr = AllocAndPrepareStatement(interp, sdata);
+	if (sdata->stmtPtr == NULL) {
+	    goto err;
+	}
+
+	/* Get result set metadata */
+
+	sdata->metadataPtr = mysql_stmt_result_metadata(sdata->stmtPtr);
+	if (mysql_stmt_errno(sdata->stmtPtr)) {
+	    TransferMysqlStmtError(interp, sdata->stmtPtr);
+	    goto err;
+	}
+	sdata->columnNames = ResultDescToTcl(sdata->metadataPtr, 0);
+	Tcl_IncrRefCount(sdata->columnNames);
+
+	Tcl_ListObjLength(NULL, sdata->subVars, &nParams);
+	sdata->params = (ParamData*) ckalloc(nParams * sizeof(ParamData));
+	for (i = 0; i < nParams; ++i) {
+	    sdata->params[i].flags = PARAM_IN;
+	    sdata->params[i].dataType = MYSQL_TYPE_VARCHAR;
+	    sdata->params[i].precision = 0;
+	    sdata->params[i].scale = 0;
+	}
+
+	/* Record this statement in the connection's statements hash table */
+
+	DBG("Recording %s/%s in cdata->statements\n", name(cdata), name(sdata));
+	Tcl_SetHashValue(he, sdata);
+    }
+
+    newIr.twoPtrValue.ptr1 = sdata;
+    newIr.twoPtrValue.ptr2 = cdata->mysqlPtr;
+    Tcl_StoreIntRep(obj, &mysqlStatementType, &newIr);
+
+    /* Add a ref for our intrep */
+
+    AddStatementRef(obj, sdata);
+
+    /* Drop the ref for our sdata pointer */
+
+    DecrStatementRefCount(sdata);
+    sdata = NULL;
+
+    *sdataOut = newIr.twoPtrValue.ptr1;
+
+    return TCL_OK;
+
+
+    /* On error, unwind all the resource allocations */
+
+ err:
+    if (nativeSql) {
+	Tcl_DecrRefCount(nativeSql);
+	nativeSql = NULL;
+    }
+    if (subVars) {
+	Tcl_DecrRefCount(subVars);
+	subVars = NULL;
+    }
+    if (tokens) {
+	Tcl_DecrRefCount(tokens);
+	tokens = NULL;
+    }
+    if (new && he) {
+	Tcl_DeleteHashEntry(he);
+	he = NULL;
+    }
+    if (sdata) {
+	DecrStatementRefCount(sdata);
+	sdata = NULL;
+    }
     return TCL_ERROR;
 }
 
@@ -3402,6 +4693,12 @@ ResultSetConstructor(
 	|| mysql_stmt_store_result(rdata->stmtPtr) ) {
 	TransferMysqlStmtError(interp, sdata->stmtPtr);
 	return TCL_ERROR;
+    }
+
+    /* Only bump the heat for successful executions */
+    if (sdata->heat < 512) {	/* 512 - not tuned yet */
+	sdata->heat++;
+	DBG("Bumping heat to %d for exec of %s\n", sdata->heat, sdata->origSql);
     }
 
     /* Determine and store the row count */
@@ -3803,6 +5100,8 @@ Tdbcmysql_Init(
     Tcl_Class curClass;		/* Tcl_Class representing the current class */
     int i;
 
+    DBG("Tdbcmysql_Init\n");
+
     /* Require all package dependencies */
 
     if (Tcl_InitStubs(interp, TCL_VERSION, 0) == NULL) {
@@ -3871,6 +5170,13 @@ Tdbcmysql_Init(
 			    Tcl_NewMethod(interp, curClass, NULL, 1,
 					  &ConnectionConstructorType,
 					  (ClientData) pidata));
+
+    /* Attach a destructor to the 'connection' class */
+
+    Tcl_ClassSetDestructor(interp, curClass,
+			    Tcl_NewMethod(interp, curClass, NULL, 1,
+					&ConnectionDestructorType,
+					(ClientData) NULL));
 
     /* Attach the methods to the 'connection' class */
 
@@ -3954,69 +5260,69 @@ Tdbcmysql_Init(
 
     Tcl_MutexLock(&mysqlMutex);
     if (mysqlRefCount == 0) {
-	    if ((mysqlLoadHandle = MysqlInitStubs(interp)) == NULL) {
-		Tcl_MutexUnlock(&mysqlMutex);
-		return TCL_ERROR;
-	    }
-	    mysql_library_init(0, NULL, NULL);
-	    mysqlClientVersion = mysql_get_client_version();
+	if ((mysqlLoadHandle = MysqlInitStubs(interp)) == NULL) {
+	    Tcl_MutexUnlock(&mysqlMutex);
+	    return TCL_ERROR;
 	}
-	++mysqlRefCount;
-	Tcl_MutexUnlock(&mysqlMutex);
-
-	/*
-	* TODO: mysql_thread_init, and keep a TSD reference count of users.
-	*/
-
-	return TCL_OK;
+	mysql_library_init(0, NULL, NULL);
+	mysqlClientVersion = mysql_get_client_version();
     }
-#ifdef __cplusplus
-    }
-#endif  /* __cplusplus */
-    
+    ++mysqlRefCount;
+    Tcl_MutexUnlock(&mysqlMutex);
+
     /*
-    *-----------------------------------------------------------------------------
-    *
-    * DeletePerInterpData --
-    *
-    *	Delete per-interpreter data when the MYSQL package is finalized
-    *
-    * Side effects:
-    *	Releases the (presumably last) reference on the environment handle,
-    *	cleans up the literal pool, and deletes the per-interp data structure.
-    *
-    *-----------------------------------------------------------------------------
+    * TODO: mysql_thread_init, and keep a TSD reference count of users.
     */
 
-    static void
-    DeletePerInterpData(
-	PerInterpData* pidata	/* Data structure to clean up */
-    ) {
-	int i;
+    return TCL_OK;
+}
+#ifdef __cplusplus
+}
+#endif  /* __cplusplus */
+    
+/*
+ *-----------------------------------------------------------------------------
+ *
+ * DeletePerInterpData --
+ *
+ *	Delete per-interpreter data when the MYSQL package is finalized
+ *
+ * Side effects:
+ *	Releases the (presumably last) reference on the environment handle,
+ *	cleans up the literal pool, and deletes the per-interp data structure.
+ *
+ *-----------------------------------------------------------------------------
+ */
 
-	Tcl_HashSearch search;
-	Tcl_HashEntry *entry;
-	for (entry = Tcl_FirstHashEntry(&(pidata->typeNumHash), &search);
-	    entry != NULL;
-	    entry = Tcl_NextHashEntry(&search)) {
-	    Tcl_Obj* nameObj = (Tcl_Obj*) Tcl_GetHashValue(entry);
-	    Tcl_DecrRefCount(nameObj);
-	}
-	Tcl_DeleteHashTable(&(pidata->typeNumHash));
+static void
+DeletePerInterpData(
+    PerInterpData* pidata	/* Data structure to clean up */
+) {
+    int i;
 
-	for (i = 0; i < LIT__END; ++i) {
-	    Tcl_DecrRefCount(pidata->literals[i]);
-	}
-	ckfree((char *) pidata);
+    Tcl_HashSearch search;
+    Tcl_HashEntry *entry;
+    for (entry = Tcl_FirstHashEntry(&(pidata->typeNumHash), &search);
+	entry != NULL;
+	entry = Tcl_NextHashEntry(&search)) {
+	Tcl_Obj* nameObj = (Tcl_Obj*) Tcl_GetHashValue(entry);
+	Tcl_DecrRefCount(nameObj);
+    }
+    Tcl_DeleteHashTable(&(pidata->typeNumHash));
 
-	/*
-	* TODO: decrease thread refcount and mysql_thread_end if need be
-	*/
+    for (i = 0; i < LIT__END; ++i) {
+	Tcl_DecrRefCount(pidata->literals[i]);
+    }
+    ckfree((char *) pidata);
 
-	Tcl_MutexLock(&mysqlMutex);
-	if (--mysqlRefCount == 0) {
-	    mysql_library_end();
-	    Tcl_FSUnloadFile(NULL, mysqlLoadHandle);
-	}
-	Tcl_MutexUnlock(&mysqlMutex);
+    /*
+    * TODO: decrease thread refcount and mysql_thread_end if need be
+    */
+
+    Tcl_MutexLock(&mysqlMutex);
+    if (--mysqlRefCount == 0) {
+	mysql_library_end();
+	Tcl_FSUnloadFile(NULL, mysqlLoadHandle);
+    }
+    Tcl_MutexUnlock(&mysqlMutex);
 }
